@@ -89,10 +89,46 @@ is using. A launched one always is.
 | `element.exists(timeout=None)` | `True`/`False` instead of an exception, for both directions of assertion. |
 | `element.wait_visible(timeout=None)` | Block until it is actually painted, then return itself so a call can follow. |
 | `element.wait_until_text_is(expected, timeout=None)` | Block until it reads exactly `expected`, then return itself so a call can follow. |
+| `app.dialog(title, timeout=None)` | Wait for a child window and return a `Dialog` whose queries stop at that window's edge. |
+| `dialog.button(name)` / `.textbox(name)` / `.text(value)` | Exactly what an `App`'s are, answered inside the dialog only. |
+| `dialog.wait_closed(timeout=None)` | Block until the application has taken the dialog off screen. |
+| `app.has_dialog(title, timeout=None)` | `True`/`False` instead of an exception, the way `element.exists()` is. |
 | `app.close()` / `app.pid` / `app.title` | End it, or ask about it. |
 | `--uia-timeout SECONDS` | The implicit wait every lookup inherits. Default 5 s; any call can override it with `timeout=`. |
 
 Names are matched **exactly** in v1. Substring and regex matching are on the roadmap.
+
+### Driving a dialog
+
+A first-run wizard is a sequence of dialogs that reuse their captions — `Next`,
+`Back`, `Browse…`, `OK` — and usually over a main window carrying some of the same
+words. Address the window, and every query inside it means that window:
+
+```python
+@pytest.mark.gui
+def test_choosing_a_folder_in_the_settings_dialog(gui):
+    app = gui.launch([sys.executable, "todo_app.py"])
+    app.button("Open Settings").click()
+
+    settings = app.dialog("Settings")          # waits for it to open
+    settings.textbox("Folder").type_text(r"C:\data")
+    settings.button("Confirm").click()         # unambiguously the dialog's Confirm
+
+    settings.wait_closed()                     # the step is over when it is gone
+    assert app.text("settings saved").exists()
+```
+
+`app.button("Confirm")` would also have found *a* Confirm — the main window's subtree
+contains the dialog, so an unscoped query reaches both windows and answers with
+whichever the accessibility tree offers first. `settings.button("Confirm")` searches
+from the dialog's own window instead, so the main window's controls are out of reach:
+`settings.button("New Task").exists()` is `False` while `app.button("New Task").exists()`
+is `True`.
+
+A dialog that never opens raises **`DialogNotFound`** (not `WindowNotFound`, which means
+the application has nothing on screen at all — a different first suspect), and one that
+will not go away raises **`DialogStillOpen`** from `wait_closed()`. Both messages name
+the caption, where it was looked for, and how long. Both are exported, as is `Dialog`.
 
 ## How it finds things
 
@@ -199,6 +235,11 @@ not previously exist** — annotating a role is not putting a label on an object
 changes which patterns the bridge offers for it at all. `app.textbox("Title")` and
 `app.text("task created")` work against Tk from that point on, and the journey at the top
 of this README runs **verbatim** against both the WinForms fixture app and the Tk one.
+
+A `Toplevel` built long **after** that call is annotated too — `enable()` leaves its
+`<Map>` binding on Tk's `all` bindtag, so a dialog's widgets are named and roled as they
+appear. Measured, and it is the reason [driving a dialog](#driving-a-dialog) needed no
+changes in the sibling at all.
 
 Note what did **not** have to change for that: `_CONTROL_TYPE_FOR_ROLE`, the three-line
 table mapping `button → ButtonControl`, `text → TextControl` and `textbox → EditControl`,
@@ -318,10 +359,10 @@ lock the workstation (a locked session has no interactive desktop to inject into
 ### Not in v1
 
 Menus, comboboxes, checkboxes and radios, tables and trees, drag-and-drop, right- and
-double-click, keyboard chords, scrolling, child modal dialogs, image-diff assertions,
-OCR-targeted `type_text`, non-built-in OCR engines, non-Windows, elevated processes,
-PyPI publishing. See [ROADMAP](ROADMAP.md) for what is deferred and what is refused
-outright.
+double-click, keyboard chords, scrolling, dialogs opened from inside another dialog,
+image-diff assertions, OCR-targeted `type_text`, non-built-in OCR engines, non-Windows,
+elevated processes, PyPI publishing. See [ROADMAP](ROADMAP.md) for what is deferred and
+what is refused outright.
 
 ## Launching apps that are really launchers
 
@@ -391,7 +432,10 @@ The `gui` suite launches three fixture applications:
 - **`tests/fixture_apps/winforms_app.ps1`** — a WinForms form with the rich accessibility
   tree it was born with, standing in for a well-behaved native app.
 - **`tests/fixture_apps/tk_app.py`** — classic Tk widgets, made findable by
-  `tk_uia.enable()`. It asserts that call returned `ANNOTATED` and exits if it did
+  `tk_uia.enable()`, plus the modal `Toplevel` (`transient()` + `grab_set()`) the
+  dialog specs drive. Its `Confirm` shares a name with a `Confirm` on the main
+  window on purpose: two controls answering one query is what makes "which window
+  did you mean" a question at all. It asserts that call returned `ANNOTATED` and exits if it did
   not, because a version gate that mis-fired leaves every widget exactly as bare Tk
   left it, and the specs would then be quietly measuring bare Tk. `enable()` names
   what a widget can be named from; the app supplies the rest, which is the honest
@@ -429,7 +473,7 @@ src/pytest_uia/
 
 tests/fixture_apps/
 ├── winforms_app.ps1  # a full accessibility tree, and always had one
-├── tk_app.py         # classic Tk, given names and roles by `tk_uia.enable()`
+├── tk_app.py         # classic Tk + a modal dialog, named by `tk_uia.enable()`
 ├── tk_canvas_app.py  # paint and nothing else: zero UIA children, never annotated
 └── legible.py        # the DPI awareness and 12 pt black-on-white both Tk apps share
 ```

@@ -1,6 +1,7 @@
 # Fixture app with a rich accessibility tree, driven by the UIA specs.
-# It stands in for the kind of surface that exposes everything: ATLAS's Electron
-# dashboard, or any WinForms/WPF app.
+# It stands in for the kind of surface that exposes everything without being
+# asked: a WinForms or WPF app, or an Electron window, where every control
+# arrives already named and correctly roled.
 #
 # Launch it the way the tests do:
 #   powershell.exe -NoProfile -Sta -WindowStyle Hidden -ExecutionPolicy Bypass -File winforms_app.ps1

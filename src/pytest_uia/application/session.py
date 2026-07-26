@@ -13,25 +13,26 @@ from contextlib import suppress
 from typing import Protocol
 
 from pytest_uia.application.app_process import AppProcess
-from pytest_uia.application.driver import DEFAULT_POLICY, App, RunningProcess
+from pytest_uia.application.driver import (
+    DEFAULT_POLICY,
+    App,
+    RunningProcess,
+    Window,
+)
 from pytest_uia.domain.errors import WindowNotFound
-from pytest_uia.domain.locator import Locator
 from pytest_uia.domain.waiting import RetryPolicy, poll
 
 
-class WindowUnderTest(Protocol):
-    """A located top-level window, and the search that runs inside it."""
+class WindowUnderTest(Window, Protocol):
+    """A located top-level window, and the search that runs inside it.
 
-    @property
-    def title(self) -> str: ...
+    Everything the driver already needs of a window, plus the one thing only a
+    session does: the pid, which is what an attached window is owned by and
+    what a launched one has to be matched against.
+    """
 
     @property
     def pid(self) -> int: ...
-
-    @property
-    def contents(self) -> Locator: ...
-
-    def close(self) -> None: ...
 
 
 class Desktop(Protocol):

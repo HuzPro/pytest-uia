@@ -8,10 +8,18 @@ rather than in seconds of real screen time.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pytest
 
 from pytest_uia.application.driver import App, UIElement
-from pytest_uia.domain.errors import ElementNotFound, InputRefused, TextNeverSettled
+from pytest_uia.domain.errors import (
+    DialogNotFound,
+    DialogStillOpen,
+    ElementNotFound,
+    InputRefused,
+    TextNeverSettled,
+)
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.waiting import RetryPolicy
 
@@ -19,7 +27,16 @@ NEW_TASK_BUTTON = Query(role=Role.BUTTON, name="New Task")
 TITLE_TEXTBOX = Query(role=Role.TEXTBOX, name="Title")
 TASK_CREATED_LABEL = Query(role=Role.TEXT, name="task created")
 
+# The collision the whole dialog feature exists for: a caption a wizard reuses
+# on every step, which also sits on the window underneath it.
+CONFIRM = "Confirm"
+SETTINGS = "Settings"
+
 _DEFAULT_WAIT = RetryPolicy()
+
+# No pause between looks: the dialog specs are about what is waited *for*, not
+# about how long a real desktop takes to paint a window.
+_NO_PAUSE = RetryPolicy(timeout=5.0, interval=0.0)
 
 # What the pointer adapter raises: a bare reason the driver has to carry
 # through, because it is the only thing that names the culprit.
@@ -176,15 +193,43 @@ class ChainThatFindsOnAttempt:
         return RecordingControl()
 
 
-class FakeWindow:
-    """Test double: a top-level window that remembers being asked to close."""
+class FakeDialog:
+    """Test double: a child window with a search of its own inside it."""
 
-    def __init__(self, title: str = "Fixture") -> None:
+    def __init__(self, title: str, contents: object) -> None:
         self.title = title
+        self.contents = contents
         self.closes = 0
+
+    def dialog_titled(self, title: str) -> FakeDialog:
+        raise DialogNotFound(f"no window titled {title!r} inside {self.title!r}")
 
     def close(self) -> None:
         self.closes += 1
+
+
+class FakeWindow:
+    """Test double: a top-level window that remembers being asked to close."""
+
+    def __init__(
+        self, title: str = "Fixture", *, dialogs: Sequence[FakeDialog] = ()
+    ) -> None:
+        self.title = title
+        self.closes = 0
+        self.dialogs_looked_up: list[str] = []
+        self._dialogs = {dialog.title: dialog for dialog in dialogs}
+
+    def dialog_titled(self, title: str) -> FakeDialog:
+        self.dialogs_looked_up.append(title)
+        return self._whatever_is_open(title)
+
+    def close(self) -> None:
+        self.closes += 1
+
+    def _whatever_is_open(self, title: str) -> FakeDialog:
+        if title not in self._dialogs:
+            raise DialogNotFound(f"no window titled {title!r} inside {self.title!r}")
+        return self._dialogs[title]
 
 
 class WindowAlreadyGone(FakeWindow):
@@ -196,6 +241,42 @@ class WindowAlreadyGone(FakeWindow):
 
     def close(self) -> None:
         raise RuntimeError("the window is not there any more")
+
+
+class WindowWhoseDialogOpensOnAttempt(FakeWindow):
+    """Test double: a window whose dialog is only on screen from the Nth look.
+
+    The ordinary case, not an edge case: a dialog opens on the application's
+    own message pump, so the click that asks for one returns before the window
+    behind it exists.
+    """
+
+    def __init__(self, dialog: FakeDialog, *, opens_on_attempt: int) -> None:
+        super().__init__(dialogs=[dialog])
+        self._opens_on_attempt = opens_on_attempt
+
+    def _whatever_is_open(self, title: str) -> FakeDialog:
+        if len(self.dialogs_looked_up) < self._opens_on_attempt:
+            raise DialogNotFound(f"no window titled {title!r} inside {self.title!r}")
+        return super()._whatever_is_open(title)
+
+
+class WindowWhoseDialogClosesOnAttempt(FakeWindow):
+    """Test double: a window whose dialog is gone from the Nth look onwards.
+
+    A dialog is destroyed on the same message pump that opened it, so it
+    outlives the click that dismissed it by exactly as long as the application
+    takes to notice.
+    """
+
+    def __init__(self, dialog: FakeDialog, *, closes_on_attempt: int) -> None:
+        super().__init__(dialogs=[dialog])
+        self._closes_on_attempt = closes_on_attempt
+
+    def _whatever_is_open(self, title: str) -> FakeDialog:
+        if len(self.dialogs_looked_up) >= self._closes_on_attempt:
+            raise DialogNotFound(f"no window titled {title!r} inside {self.title!r}")
+        return super()._whatever_is_open(title)
 
 
 class FakeProcess:
@@ -230,6 +311,13 @@ def _app_looking_things_up_in(
 ) -> App:
     """An app whose window and process are stand-ins: these specs only search."""
     return App(chain, window=FakeWindow(), process=FakeProcess(), policy=policy)
+
+
+def _app_whose_window_is(window: FakeWindow, policy: RetryPolicy = _NO_PAUSE) -> App:
+    """An app that can find nothing itself, so only a dialog's search can answer."""
+    return App(
+        ChainThatNeverFinds(), window=window, process=FakeProcess(), policy=policy
+    )
 
 
 def test_clicking_an_element_resolves_its_query_through_the_chain_first() -> None:
@@ -757,3 +845,155 @@ def test_an_app_reports_the_pid_of_the_process_it_is_driving() -> None:
     # Then it is the launched process's own, so a test can outlive the app and
     # still check that nothing was left running
     assert pid == process.pid, "an app that hides its pid cannot be proven dead"
+
+
+def test_a_dialogs_queries_are_answered_inside_it_and_not_in_the_window_underneath() -> (
+    None
+):
+    # Given a dialog and the window it opened over, each carrying a Confirm
+    in_the_dialog = RecordingControl()
+    under_the_dialog = RecordingControl()
+    window = FakeWindow(dialogs=[FakeDialog(SETTINGS, ChainThatFinds(in_the_dialog))])
+    app = App(ChainThatFinds(under_the_dialog), window=window, process=FakeProcess())
+
+    # When the test drives the Confirm inside the dialog
+    app.dialog(SETTINGS).button(CONFIRM).click()
+
+    # Then the dialog's own button ran, and the identically named one beneath it
+    # was never touched. A search that started from the main window would reach
+    # both, and answer with whichever the tree happened to offer first
+    assert in_the_dialog.clicks == 1, "the dialog's own button never got the click"
+    assert under_the_dialog.clicks == 0, (
+        "the click went to the window underneath the dialog, which is the "
+        "ambiguity addressing a dialog by name exists to remove"
+    )
+
+
+def test_addressing_a_dialog_waits_for_the_application_to_finish_opening_it() -> None:
+    # Given a window whose dialog is only on screen from the third look
+    confirm = RecordingControl()
+    window = WindowWhoseDialogOpensOnAttempt(
+        FakeDialog(SETTINGS, ChainThatFinds(confirm)), opens_on_attempt=3
+    )
+    app = _app_whose_window_is(window)
+
+    # When the test addresses it in the line after the click that opens it
+    app.dialog(SETTINGS).button(CONFIRM).click()
+
+    # Then it kept looking until the window appeared, instead of failing on the
+    # gap between a click returning and a dialog being painted
+    assert len(window.dialogs_looked_up) == 3, (
+        f"a dialog that has not opened yet must be waited for, not failed on "
+        f"after {len(window.dialogs_looked_up)} look(s)"
+    )
+    assert confirm.clicks == 1, "the dialog that finally opened was never driven"
+
+
+def test_a_dialog_that_never_opens_says_which_one_and_how_long_it_was_waited_for() -> (
+    None
+):
+    # Given a window that never shows the dialog a test is expecting
+    window = FakeWindow("pytest-uia Tk Fixture")
+    app = _app_whose_window_is(window, RetryPolicy(timeout=2.0, interval=0.0))
+
+    # When the test addresses it
+    with pytest.raises(DialogNotFound) as never_opened:
+        app.dialog(SETTINGS)
+
+    # Then the failure carries both halves of what a reader needs: how long the
+    # driver kept looking, which is the only place that is known, and where it
+    # looked, which only the window that was searched can say. A gui failure
+    # usually leaves nothing behind but this string
+    reason = str(never_opened.value)
+    assert "2.0s" in reason, (
+        f"the reader has to be told how long the dialog was waited for: {reason}"
+    )
+    assert SETTINGS in reason, f"the caption that never appeared is missing: {reason}"
+    assert "pytest-uia Tk Fixture" in reason, (
+        f"the window that was searched is what says the caption was wrong "
+        f"rather than the step that opens it: {reason}"
+    )
+
+
+def test_a_per_call_timeout_overrides_the_implicit_wait_for_a_dialog_to_open() -> None:
+    # Given an app whose default wait is far longer than this one lookup deserves
+    window = FakeWindow()
+    app = _app_whose_window_is(window, RetryPolicy(timeout=30.0, interval=0.0))
+
+    # When the test asserts a dialog it already expects to be absent
+    with pytest.raises(DialogNotFound):
+        app.dialog(SETTINGS, timeout=0.0)
+
+    # Then only that lookup gave up early, exactly as every element wait allows
+    assert len(window.dialogs_looked_up) == 1, (
+        "proving no dialog opened must not cost the whole implicit wait"
+    )
+
+
+def test_waiting_for_a_dialog_to_close_returns_once_the_application_has_dismissed_it() -> (
+    None
+):
+    # Given a dialog the application only takes off screen by the third look
+    window = WindowWhoseDialogClosesOnAttempt(
+        FakeDialog(SETTINGS, ChainThatNeverFinds()), closes_on_attempt=3
+    )
+    settings = _app_whose_window_is(window).dialog(SETTINGS)
+
+    # When the test waits for the wizard step to end
+    settings.wait_closed()
+
+    # Then it kept looking until the window went away, rather than believing the
+    # click that dismissed it — the dialog outlives that click by however long
+    # the application takes to notice
+    assert len(window.dialogs_looked_up) == 3, (
+        f"a dialog still closing must be waited out, not failed on after "
+        f"{len(window.dialogs_looked_up)} look(s)"
+    )
+
+
+def test_a_dialog_that_never_closes_says_which_one_and_how_long_it_was_waited_for() -> (
+    None
+):
+    # Given a dialog that stays on screen however long the test waits
+    window = FakeWindow(
+        "pytest-uia Tk Fixture", dialogs=[FakeDialog(SETTINGS, ChainThatNeverFinds())]
+    )
+    app = _app_whose_window_is(window, RetryPolicy(timeout=2.0, interval=0.0))
+    settings = app.dialog(SETTINGS)
+
+    # When the test waits for it to go away
+    with pytest.raises(DialogStillOpen) as still_there:
+        settings.wait_closed()
+
+    # Then the failure names the dialog that would not leave and how long it was
+    # given to. "the assert failed" about a boolean says nothing anyone can act on
+    reason = str(still_there.value)
+    assert SETTINGS in reason, f"the dialog that stayed is not named: {reason}"
+    assert "2.0s" in reason, (
+        f"the reader has to be told how long it was waited out for: {reason}"
+    )
+
+
+def test_asking_whether_a_dialog_is_open_answers_rather_than_raising() -> None:
+    # Given an application with nothing over its main window
+    app = _app_whose_window_is(FakeWindow(), RetryPolicy(timeout=0.0, interval=0.0))
+
+    # When the test asks whether the wizard's step is up
+    up = app.has_dialog(SETTINGS)
+
+    # Then it gets something to assert on, not an exception to catch
+    assert up is False, (
+        "`assert not app.has_dialog(...)` has to be writable without try/except"
+    )
+
+
+def test_asking_about_a_dialog_that_is_open_says_so() -> None:
+    # Given an application showing the dialog
+    window = FakeWindow(dialogs=[FakeDialog(SETTINGS, ChainThatNeverFinds())])
+    app = _app_whose_window_is(window)
+
+    # When the test asks whether it is up
+    up = app.has_dialog(SETTINGS)
+
+    # Then the answer is yes, so the question is worth asking in both directions
+    assert up is True, "a dialog that is plainly on screen was reported absent"

@@ -19,8 +19,11 @@ def test_the_package_exports_the_types_a_user_writes_a_conftest_against() -> Non
     # every failure a test might reasonably want to catch by name
     assert {
         "App",
+        "Dialog",
         "UIElement",
         "GuiSession",
+        "DialogNotFound",
+        "DialogStillOpen",
         "ElementNotFound",
         "InputRefused",
         "TextNeverSettled",

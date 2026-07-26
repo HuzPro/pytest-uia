@@ -15,6 +15,26 @@ class WindowNotFound(Exception):
     """A launched application owns no visible top-level window (yet)."""
 
 
+class DialogNotFound(Exception):
+    """No window with the caption a test addressed is open inside the application.
+
+    Deliberately not a WindowNotFound: that one means the application has
+    nothing on screen at all, and it is what a launch waits through. This is
+    raised by an app whose main window is right there, so the first suspect is
+    the step that was supposed to open the dialog — a click that reached
+    nothing, or a caption that is not the one on the title bar.
+    """
+
+
+class DialogStillOpen(Exception):
+    """A dialog a test waited to see the back of is still on screen.
+
+    The other half of DialogNotFound, and a separate failure because it points
+    at a different suspect: nothing is missing, and the step that should have
+    dismissed the window either never ran or was refused.
+    """
+
+
 class TextNeverSettled(Exception):
     """An element was found; the text a test waited for never became its own.
 

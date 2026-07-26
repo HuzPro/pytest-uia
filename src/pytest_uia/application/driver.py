@@ -13,7 +13,13 @@ from contextlib import suppress
 from dataclasses import replace
 from typing import Protocol, TypeVar
 
-from pytest_uia.domain.errors import ElementNotFound, InputRefused, TextNeverSettled
+from pytest_uia.domain.errors import (
+    DialogNotFound,
+    DialogStillOpen,
+    ElementNotFound,
+    InputRefused,
+    TextNeverSettled,
+)
 from pytest_uia.domain.locator import Element, Locator
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.waiting import RetryPolicy, poll
@@ -156,6 +162,11 @@ class Window(Protocol):
     @property
     def title(self) -> str: ...
 
+    @property
+    def contents(self) -> Locator: ...
+
+    def dialog_titled(self, title: str) -> Window: ...
+
     def close(self) -> None: ...
 
 
@@ -168,24 +179,17 @@ class RunningProcess(Protocol):
     def terminate(self) -> None: ...
 
 
-class App:
-    """Facade over one running application: its process, its window, the way in.
+class ElementSource:
+    """The widgets of exactly one window, and the implicit wait they inherit.
 
-    A test says `app.button("New Task").click()` and never learns that a
-    locator chain, a retry policy and an accessibility tree were involved.
+    Shared by App and Dialog so that `button`, `textbox` and `text` mean the
+    same thing in both. The only difference between the two is which window's
+    subtree their queries are answered from, and that difference is the whole
+    point of `App.dialog`.
     """
 
-    def __init__(
-        self,
-        locator: Locator,
-        *,
-        window: Window,
-        process: RunningProcess,
-        policy: RetryPolicy = DEFAULT_POLICY,
-    ) -> None:
+    def __init__(self, locator: Locator, policy: RetryPolicy = DEFAULT_POLICY) -> None:
         self._locator = locator
-        self._window = window
-        self._process = process
         self._policy = policy
 
     def button(self, name: str, *, timeout: float | None = None) -> UIElement:
@@ -204,6 +208,57 @@ class App:
             waiting_at_most(self._policy, timeout),
         )
 
+
+class App(ElementSource):
+    """Facade over one running application: its process, its window, the way in.
+
+    A test says `app.button("New Task").click()` and never learns that a
+    locator chain, a retry policy and an accessibility tree were involved.
+    """
+
+    def __init__(
+        self,
+        locator: Locator,
+        *,
+        window: Window,
+        process: RunningProcess,
+        policy: RetryPolicy = DEFAULT_POLICY,
+    ) -> None:
+        super().__init__(locator, policy)
+        self._window = window
+        self._process = process
+
+    def dialog(self, title: str, *, timeout: float | None = None) -> Dialog:
+        """Address a child window by its caption, and search only inside it.
+
+        Scoped by searching from the dialog's own control rather than from the
+        main window: the main window's subtree *contains* the dialog, so a
+        query answered there reaches both windows' controls and returns
+        whichever the tree offers first — which is the whole ambiguity a wizard
+        reusing captions runs into.
+
+        Waited for, because a dialog opens on the application's own message
+        pump: the click that asks for one has returned long before the window
+        exists.
+        """
+        dialog_window = self._child_window_titled(
+            title, waiting_at_most(self._policy, timeout)
+        )
+        return Dialog(
+            dialog_window.contents,
+            title=title,
+            opened_over=self._window,
+            policy=self._policy,
+        )
+
+    def has_dialog(self, title: str, *, timeout: float | None = None) -> bool:
+        """Answer instead of raising, so a test can assert either way."""
+        try:
+            self.dialog(title, timeout=timeout)
+        except DialogNotFound:
+            return False
+        return True
+
     @property
     def pid(self) -> int:
         return self._process.pid
@@ -217,9 +272,66 @@ class App:
         self._ask_the_window_to_close()
         self._process.terminate()
 
+    def _child_window_titled(self, title: str, policy: RetryPolicy) -> Window:
+        try:
+            return poll(
+                lambda: self._window.dialog_titled(title),
+                policy,
+                retry_on=DialogNotFound,
+            )
+        except DialogNotFound as never_opened:
+            # The window that was searched knows where it looked; only this
+            # knows how long the test was willing to wait, and both belong in
+            # the report.
+            raise DialogNotFound(
+                f"no dialog titled {title!r} opened within {policy.timeout}s; "
+                f"{never_opened}"
+            ) from never_opened
+
     def _ask_the_window_to_close(self) -> None:
         # Best effort by design, and deliberately blind to what went wrong. A
         # window whose provider has already died raises here, and that is
         # precisely the run where the process behind it most needs killing.
         with suppress(Exception):
             self._window.close()
+
+
+class Dialog(ElementSource):
+    """A child window a test addressed by caption, and the queries scoped to it.
+
+    Deliberately not an App. A dialog has no process of its own to end and no
+    lifecycle a test may take over — `close()` and `pid` would be borrowed
+    semantics that fit the window underneath it and not this one. What it does
+    share is the way in, which is why both are ElementSources.
+    """
+
+    def __init__(
+        self,
+        locator: Locator,
+        *,
+        title: str,
+        opened_over: Window,
+        policy: RetryPolicy = DEFAULT_POLICY,
+    ) -> None:
+        super().__init__(locator, policy)
+        self._title = title
+        self._opened_over = opened_over
+
+    def wait_closed(self, *, timeout: float | None = None) -> None:
+        """Block until the application has taken this dialog off screen."""
+        policy = waiting_at_most(self._policy, timeout)
+        try:
+            poll(self._no_longer_on_screen, policy, retry_on=DialogStillOpen)
+        except DialogStillOpen as lingering:
+            raise DialogStillOpen(f"{lingering} after {policy.timeout}s") from lingering
+
+    def _no_longer_on_screen(self) -> None:
+        # Asked of the window underneath rather than of the control this dialog
+        # was found through: a window that has been destroyed leaves a handle
+        # whose every property access fails, and "it raised" is not the same
+        # answer as "it is gone".
+        try:
+            self._opened_over.dialog_titled(self._title)
+        except DialogNotFound:
+            return
+        raise DialogStillOpen(f"dialog {self._title!r} is still on screen")

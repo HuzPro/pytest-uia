@@ -7,6 +7,40 @@ into coordinates. Breadth of widget support comes second to that, and speed come
 a distant third: a gui suite is bounded by the application's own repaint, not by
 anything in here.
 
+## Shipped in v0.4
+
+Child modal dialogs — and a correction to what this roadmap used to say about
+them.
+
+- **`app.dialog(title)`**, which waits for a child window to open and answers
+  with a `Dialog` whose `button`, `textbox` and `text` behave exactly as an
+  `App`'s do, except that they are answered inside that window only. Timing out
+  raises `DialogNotFound`; `dialog.wait_closed()` is the other end of a wizard
+  step and raises `DialogStillOpen`; `app.has_dialog(title)` answers instead of
+  raising, the way `element.exists()` does.
+
+- **What this roadmap previously claimed was wrong, and it was measured wrong.**
+  It said "a window is resolved once, at launch, and a dialog that opens
+  afterwards is invisible to the driver". It never was. Tk owns a `Toplevel` at
+  the Win32 level whether or not it is `transient`, so UI Automation nests it
+  inside its owner's subtree, and `UiaLocator` searches the whole subtree — a
+  button that exists only in a dialog was findable through `app.button(...)` in
+  v0.1. What was actually missing was narrower and worse: **no way to say which
+  window a query meant**. Both windows in the fixture app carry a button named
+  `Confirm`, and `app.button("Confirm")` resolves to one of them by an accident
+  of z-order — measured, the dialog's, and the main window's the moment it
+  closes. A first-run wizard is a sequence of steps that reuse `Next`, `Back`
+  and `OK`, so a suite driving one could not express "the OK **in this dialog**"
+  at all.
+
+- **The scope is a real narrowing, and a spec proves it.** Searching starts at
+  the dialog's own control, not at the main window's, so the main window's
+  controls are out of reach from inside a dialog — which is what a naive
+  implementation gets wrong, and what `tests/test_dialog_end_to_end.py` fails on
+  when the scoping is backed out. `tk-uia` needed no changes: its `<Map>`
+  binding sits on the `all` bindtag, so a `Toplevel` built long after
+  `enable()` is annotated like everything else.
+
 ## Shipped in v0.3
 
 One call for the wait every asynchronous GUI forces on its tests.
@@ -67,10 +101,12 @@ window with a rich accessibility tree and one without.
 
 ## Next
 
-- **Child modal dialogs.** The first thing a real suite hits after the main
-  window, and the first thing that would be built next: a first-run wizard is a
-  sequence of them. Currently a window is resolved once, at launch, and a dialog
-  that opens afterwards is invisible to the driver.
+- **Dialogs within dialogs.** `App.dialog` addresses a child of the main window;
+  a `Browse…` sheet opened from a wizard step is a child of *that* step, and
+  reaching it means `Dialog` growing the same call. Not built because nothing
+  has needed it yet, and because a dialog's scope already includes its own
+  children — so the ambiguity only returns when two nested windows reuse a
+  caption.
 - **Substring and regex name matching.** v1 matches accessible names exactly,
   which breaks the moment an app appends a count or a state to a caption
   ("Inbox (3)").

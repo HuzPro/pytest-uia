@@ -37,7 +37,7 @@ from comtypes import COMError
 
 from pytest_uia.adapters.input import WINDOWS_POINTER, PointerInput
 from pytest_uia.adapters.process_tree import process_family
-from pytest_uia.domain.errors import ElementNotFound, WindowNotFound
+from pytest_uia.domain.errors import DialogNotFound, ElementNotFound, WindowNotFound
 from pytest_uia.domain.locator import Locator, LocatorChain
 from pytest_uia.domain.query import Query, Role
 
@@ -104,6 +104,31 @@ def resolve_window_titled(title: str) -> auto.Control:
     search = auto.Control(searchDepth=_TOP_LEVEL_WINDOWS, Name=title)
     if not search.Exists(maxSearchSeconds=_LOOK_ONCE):
         raise WindowNotFound(f"no visible top-level window titled {title!r}")
+    return auto.Control.CreateControlFromElement(search.Element)
+
+
+def resolve_dialog_titled(window: auto.Control, title: str) -> auto.Control:
+    """Find a child window of `window` by the caption on its own title bar.
+
+    Constrained to WindowControl on purpose. Measured, a Tk `Toplevel` opened
+    with `transient()` and `grab_set()` arrives as a WindowControl one level
+    under its owner — but so does every label, and without the constraint a
+    caption that also appears as a word somewhere in the window would answer
+    instead, handing back a "dialog" with no children a test could ever explain.
+
+    Depth is left open, because how deeply a toolkit nests an owned window is
+    the toolkit's business and not this function's.
+    """
+    search = auto.Control(
+        searchFromControl=window,
+        ControlType=auto.ControlType.WindowControl,
+        Name=title,
+    )
+    if not search.Exists(maxSearchSeconds=_LOOK_ONCE):
+        raise DialogNotFound(
+            f"no window titled {title!r} inside {window.Name!r} "
+            f"(pid {window.ProcessId})"
+        )
     return auto.Control.CreateControlFromElement(search.Element)
 
 
@@ -358,6 +383,15 @@ class UiaWindow:
     @property
     def contents(self) -> LocatorChain:
         return self._contents
+
+    def dialog_titled(self, title: str) -> UiaWindow:
+        """A window inside this one, searched exactly as this one is searched.
+
+        Answering with another UiaWindow is what makes a dialog scopable: the
+        chain it builds starts at the dialog's own control, so a query answered
+        through it cannot reach the window underneath.
+        """
+        return UiaWindow(resolve_dialog_titled(self._control, title))
 
     def close(self) -> None:
         close_window(self._control)

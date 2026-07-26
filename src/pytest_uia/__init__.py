@@ -7,9 +7,11 @@ Windows-only dependency: the UIA adapter is loaded when a session is first
 wired to a real desktop, not before.
 """
 
-from pytest_uia.application.driver import App, UIElement
+from pytest_uia.application.driver import App, Dialog, UIElement
 from pytest_uia.application.session import GuiSession
 from pytest_uia.domain.errors import (
+    DialogNotFound,
+    DialogStillOpen,
     ElementNotFound,
     InputRefused,
     TextNeverSettled,
@@ -17,10 +19,13 @@ from pytest_uia.domain.errors import (
 )
 from pytest_uia.domain.query import Query, Role
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "App",
+    "Dialog",
+    "DialogNotFound",
+    "DialogStillOpen",
     "ElementNotFound",
     "GuiSession",
     "InputRefused",
