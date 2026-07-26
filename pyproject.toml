@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytest-uia"
+dynamic = ["version"]
+description = "Windows GUI acceptance testing for pytest: find and drive elements through the UI Automation accessibility tree, with OCR only as a last resort for surfaces that have none."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "HuzPro" }]
+keywords = [
+    "pytest",
+    "plugin",
+    "gui-testing",
+    "windows",
+    "ui-automation",
+    "uia",
+    "accessibility",
+    "acceptance-testing",
+    "atdd",
+    "desktop",
+    "ocr",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pytest>=7.4",
+    "uiautomation>=2.0; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["ruff==0.16.*"]
+
+[project.urls]
+Homepage = "https://github.com/HuzPro/pytest-uia"
+Documentation = "https://github.com/HuzPro/pytest-uia#readme"
+Source = "https://github.com/HuzPro/pytest-uia"
+Issues = "https://github.com/HuzPro/pytest-uia/issues"
+Changelog = "https://github.com/HuzPro/pytest-uia/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/pytest_uia/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pytest_uia"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gui: spawns and drives real windows on the local desktop (deselect with '-m \"not gui\"')",
+]
+
+[tool.ruff]
+target-version = "py310"
+src = ["src", "tests"]
