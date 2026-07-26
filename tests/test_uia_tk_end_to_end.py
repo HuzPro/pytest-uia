@@ -137,3 +137,30 @@ def test_typing_into_an_annotated_tk_entry_lands_in_the_widget_and_reads_back_th
         "what a client reads out of an edit control is its value, and that is "
         "not what was typed into the widget"
     )
+
+
+def test_a_test_can_wait_for_the_entry_to_read_back_what_it_typed_without_polling_by_hand(
+    tk_app: App,
+) -> None:
+    # Given the app's empty title box, reached through the same fluent element a
+    # user's own suite writes against rather than through a raw locator
+    title = tk_app.textbox("Title")
+    assert title.read_text() == "", (
+        "an entry nobody has typed into has to read as empty, or the wait below "
+        "is satisfied by a box that never changed"
+    )
+
+    # When the test types into it and waits for that value to come back out
+    with skipped_when_windows_refuses_synthetic_input():
+        title.type_text(A_DRAFT)
+
+    settled = title.wait_until_text_is(A_DRAFT)
+
+    # Then the driver absorbed the race that the spec above has to hand-roll a
+    # sentinel exception and a poll for. This is where it bites: the keys land
+    # before Tk's message pump has run, so the tree still reports the old value
+    # to the assertion that follows the call which changed it
+    assert settled.read_text() == A_DRAFT, (
+        "the wait handed the element back before the application had "
+        "re-announced the value"
+    )

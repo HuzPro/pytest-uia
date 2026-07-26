@@ -9,10 +9,15 @@ wired to a real desktop, not before.
 
 from pytest_uia.application.driver import App, UIElement
 from pytest_uia.application.session import GuiSession
-from pytest_uia.domain.errors import ElementNotFound, InputRefused, WindowNotFound
+from pytest_uia.domain.errors import (
+    ElementNotFound,
+    InputRefused,
+    TextNeverSettled,
+    WindowNotFound,
+)
 from pytest_uia.domain.query import Query, Role
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "App",
@@ -21,6 +26,7 @@ __all__ = [
     "InputRefused",
     "Query",
     "Role",
+    "TextNeverSettled",
     "UIElement",
     "WindowNotFound",
     "__version__",

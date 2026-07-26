@@ -15,6 +15,16 @@ class WindowNotFound(Exception):
     """A launched application owns no visible top-level window (yet)."""
 
 
+class TextNeverSettled(Exception):
+    """An element was found; the text a test waited for never became its own.
+
+    Deliberately not an ElementNotFound: the control was located every time it
+    was looked at. What is late is the value the application re-announces once
+    its own message pump has run, and reporting that as a missing element sends
+    whoever reads the failure looking for a control that is right there.
+    """
+
+
 class InputRefused(Exception):
     """Windows dropped the synthetic input this process injected.
 

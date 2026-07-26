@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from pytest_uia.application.driver import App, UIElement
-from pytest_uia.domain.errors import ElementNotFound, InputRefused
+from pytest_uia.domain.errors import ElementNotFound, InputRefused, TextNeverSettled
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.waiting import RetryPolicy
 
@@ -27,6 +27,12 @@ _WHY_THE_DESKTOP_REFUSED = (
     "the foreground is held by 'GameInputServiceWindow' (pid 6680)"
 )
 _NEVER = 10_000
+
+# What a test types, and what the box still reads out of the tree for a moment
+# afterwards: the application re-announces the new value on its own message
+# pump, so the old one survives the call that replaced it.
+A_TYPED_DRAFT = "Buy milk"
+A_STALE_READING = ""
 
 
 class RecordingControl:
@@ -84,6 +90,17 @@ class ControlTheDesktopRefusesInputFor(RecordingControl):
         return self.attempts < self._accepted_from_attempt
 
 
+class ControlShowing(RecordingControl):
+    """Test double: a control reading whatever the application last announced."""
+
+    def __init__(self, shown: str) -> None:
+        super().__init__()
+        self._shown = shown
+
+    def read_text(self) -> str:
+        return self._shown
+
+
 class ChainThatFinds:
     """Test double: a locator chain that resolves, and records every lookup."""
 
@@ -110,6 +127,28 @@ class RebuildingChain:
         control = RecordingControl()
         self.resolved.append(control)
         return control
+
+
+class ChainThatCatchesUpOnAttempt:
+    """Test double: a UI that only re-announces a typed value after N looks.
+
+    A brand-new control every lookup, because that is what a window which has
+    repainted hands back — an element held across a wait would go on reading
+    the value the application has already replaced.
+    """
+
+    def __init__(self, settles_on_attempt: int) -> None:
+        self._settles_on_attempt = settles_on_attempt
+        self.resolved: list[RecordingControl] = []
+
+    def find(self, query: Query) -> RecordingControl:
+        control = ControlShowing(self._what_it_shows_on_this_look())
+        self.resolved.append(control)
+        return control
+
+    def _what_it_shows_on_this_look(self) -> str:
+        has_caught_up = len(self.resolved) + 1 >= self._settles_on_attempt
+        return A_TYPED_DRAFT if has_caught_up else A_STALE_READING
 
 
 class ChainThatNeverFinds:
@@ -517,6 +556,143 @@ def test_wait_visible_keeps_waiting_while_the_control_is_in_the_tree_but_unpaint
     # Then the wait timed out: being findable is not the same as being on screen
     assert len(chain.queries) == 1, (
         "a control can sit in a window's tree long before it is painted"
+    )
+
+
+def test_waiting_for_text_returns_as_soon_as_the_element_already_reads_it() -> None:
+    # Given a button whose control already shows the words the test expects
+    chain = ChainThatFinds(RecordingControl())
+    button = UIElement(NEW_TASK_BUTTON, chain, RetryPolicy(timeout=5.0, interval=0.0))
+
+    # When the test waits for that text
+    button.wait_until_text_is("New Task")
+
+    # Then it came straight back, instead of spending a wait on a screen that
+    # was already showing what was asked for
+    assert len(chain.queries) == 1, (
+        f"a settled value must cost one look, not {len(chain.queries)}"
+    )
+
+
+def test_waiting_for_text_keeps_re_resolving_until_the_application_catches_up() -> None:
+    # Given a box the app only re-announces the typed value in on the third look
+    chain = ChainThatCatchesUpOnAttempt(3)
+    title = UIElement(TITLE_TEXTBOX, chain, RetryPolicy(timeout=5.0, interval=0.0))
+
+    # When the test waits for what it typed to come back out of the tree
+    title.wait_until_text_is(A_TYPED_DRAFT)
+
+    # Then it kept looking, and looked at a freshly resolved control each time:
+    # a stale value read once out of a control held across the wait would never
+    # change, however long the wait was
+    assert len(chain.resolved) == 3, (
+        f"a value the app has not re-announced yet must be waited for, not "
+        f"accepted after {len(chain.resolved)} look(s)"
+    )
+
+
+def test_waiting_for_text_reports_what_it_read_and_what_it_expected_when_time_runs_out() -> (
+    None
+):
+    # Given a box that stays empty however long the test waits for it
+    chain = ChainThatFinds(ControlShowing(A_STALE_READING))
+    title = UIElement(TITLE_TEXTBOX, chain, RetryPolicy(timeout=0.0))
+
+    # When the test waits for the value it typed
+    with pytest.raises(TextNeverSettled) as unsettled:
+        title.wait_until_text_is(A_TYPED_DRAFT)
+
+    # Then the failure carries both readings. A gui failure usually leaves
+    # nothing behind but this string, and "the text is wrong" without the two
+    # values tells whoever reads it nothing they can act on
+    reason = str(unsettled.value)
+    assert repr(A_STALE_READING) in reason, (
+        f"the wait must say what the element actually read: {reason}"
+    )
+    assert repr(A_TYPED_DRAFT) in reason, (
+        f"the wait must say what it was waiting to read: {reason}"
+    )
+
+
+def test_waiting_for_text_honours_a_per_call_timeout_over_the_implicit_wait() -> None:
+    # Given an element with a long implicit wait behind it, over a box the app
+    # has not typed into yet
+    chain = ChainThatFinds(ControlShowing(A_STALE_READING))
+    title = UIElement(
+        TITLE_TEXTBOX,
+        chain,
+        RetryPolicy(timeout=30.0, interval=0.0),
+        clock=TickingClock(step=0.5),
+        sleep=lambda _seconds: None,
+    )
+
+    # When the test says how long this one wait is worth
+    with pytest.raises(TextNeverSettled):
+        title.wait_until_text_is(A_TYPED_DRAFT, timeout=0.0)
+
+    # Then only that wait gave up early, exactly as `exists` and `wait_visible`
+    # already let a caller decide
+    assert len(chain.queries) == 1, (
+        "a wait a test has budgeted for itself must not cost the whole implicit wait"
+    )
+
+
+def test_waiting_for_text_hands_back_the_element_so_an_interaction_can_follow_it() -> (
+    None
+):
+    # Given a box already reading what the test was waiting for
+    control = ControlShowing(A_TYPED_DRAFT)
+    title = UIElement(
+        TITLE_TEXTBOX, ChainThatFinds(control), RetryPolicy(timeout=5.0, interval=0.0)
+    )
+
+    # When the test waits for the text and acts on the result in one breath
+    title.wait_until_text_is(A_TYPED_DRAFT).click()
+
+    # Then the click landed, because the wait returned the element itself —
+    # the same shape `wait_visible` already has
+    assert control.clicks == 1, (
+        "wait_until_text_is has to be chainable, or every use of it needs a temporary"
+    )
+
+
+def test_waiting_for_text_treats_a_control_that_has_not_painted_yet_as_a_reason_to_look_again() -> (
+    None
+):
+    # Given a label the app only paints on the third look
+    chain = ChainThatFindsOnAttempt(3)
+    status = UIElement(
+        TASK_CREATED_LABEL, chain, RetryPolicy(timeout=5.0, interval=0.0)
+    )
+
+    # When the test waits for the words it is supposed to end up showing
+    status.wait_until_text_is("New Task")
+
+    # Then a control that was not there yet was a miss rather than a failure:
+    # the same click that changes a label's text is often the one that creates
+    # it, so the two kinds of lateness share one deadline
+    assert len(chain.queries) == 3, (
+        f"an element that has not been painted yet must be waited for, not "
+        f"failed on after {len(chain.queries)} look(s)"
+    )
+
+
+def test_waiting_for_text_blames_the_missing_element_when_nothing_ever_resolves() -> (
+    None
+):
+    # Given a chain that never resolves the element at all
+    chain = ChainThatNeverFinds()
+    status = UIElement(TASK_CREATED_LABEL, chain, RetryPolicy(timeout=0.0))
+
+    # When the test waits for text on it
+    with pytest.raises(ElementNotFound) as miss:
+        status.wait_until_text_is("task created")
+
+    # Then the failure names the thing that was actually absent. Reporting an
+    # unsettled text about a control that was never on screen would send the
+    # reader looking at the wrong half of the problem
+    assert "task created" in str(miss.value), (
+        f"a wait that never found its element has to say so: {miss.value}"
     )
 
 

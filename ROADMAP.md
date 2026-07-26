@@ -7,6 +7,15 @@ into coordinates. Breadth of widget support comes second to that, and speed come
 a distant third: a gui suite is bounded by the application's own repaint, not by
 anything in here.
 
+## Shipped in v0.3
+
+One call for the wait every asynchronous GUI forces on its tests.
+
+- **`element.wait_until_text_is(expected, timeout=None)`**, polling through the
+  same implicit wait as everything else and re-resolving the element on every
+  look. Timing out raises `TextNeverSettled` — the element was found, its text
+  never settled — carrying both what it read and what was expected.
+
 ## Shipped in v0.2
 
 Tkinter driven through the accessibility tree rather than through its pixels,

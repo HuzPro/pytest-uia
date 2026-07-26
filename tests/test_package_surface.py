@@ -23,6 +23,7 @@ def test_the_package_exports_the_types_a_user_writes_a_conftest_against() -> Non
         "GuiSession",
         "ElementNotFound",
         "InputRefused",
+        "TextNeverSettled",
     } <= exported, (
         f"the public surface hides names a user has to import anyway: {exported}"
     )

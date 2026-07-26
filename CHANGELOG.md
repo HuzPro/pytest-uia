@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.3.0 — 2026-07-26
+
+Waiting for an element's text to become what a test expects stops being every
+suite's own hand-rolled poll and becomes one call on the driver.
+
+- **`element.wait_until_text_is(expected, timeout=None)`.** A GUI is
+  asynchronous: the application reacts on its own message pump, so the repaint
+  lands after the call that caused it has already returned. The consequence is
+  the most ordinary race in desktop testing — type into a box, assert on it in
+  the next line, and read the value the box held before the keys arrived. v0.2
+  gave a test `read_text()` and no way to wait on it, so the only way through
+  was to build the affordance yourself, and **this repo's own specs are the
+  evidence**: `tests/test_uia_tk_end_to_end.py` carries a `StillCatchingUp`
+  exception, a `_once_the_tree_has_caught_up` helper and a hand-built
+  `RetryPolicy` fed to `poll`, twelve lines of scaffolding to express one
+  sentence. That sentence is now `app.textbox("Title").wait_until_text_is("Buy
+  milk")`. It re-resolves the element on every look, exactly as `click` and
+  `type_text` do — an element cached across the polls would go on reading the
+  value the application has already replaced, which is the precise failure the
+  method exists to absorb — and it returns the element itself, so a call can
+  follow it the way one follows `wait_visible`.
+
+- **A missing element is a miss; missing *text* is `TextNeverSettled`.** The
+  timeout raises a new domain error rather than `ElementNotFound`, because the
+  element *was* found, on every single look — what never happened is its text
+  settling, and reporting that as a missing control sends whoever reads the
+  failure hunting for something that is right there. Same distinction, and the
+  same reasoning, as `InputRefused` in 0.1.0. The message carries both readings
+  (`Textbox 'Title' — reads '', not 'Buy milk'`), because a gui failure usually
+  leaves nothing behind but that string and "the text is wrong" is not something
+  anybody can act on. A control that is *not* on screen yet stays an ordinary
+  miss and keeps the wait going — the click that sets a label's text is usually
+  the click that creates it, so both kinds of lateness share one deadline — and
+  if it never appears, the failure is still an honest `ElementNotFound`.
+  `TextNeverSettled` is exported from the package, so a suite can catch it by
+  name.
+
+- **No new waiting machinery.** The method polls through the domain's existing
+  `poll`, inside the element's implicit wait, with the same precedence
+  everything else has: per-call `timeout=` overrides `--uia-timeout`. There are
+  no sleeps anywhere in it, and the unit specs that pin its retrying run against
+  a fake clock in milliseconds.
+
+- **The existing `StillCatchingUp` helper is deliberately still there.** The Tk
+  spec that hand-rolls the race is untouched, and a new spec beside it drives
+  the same journey through `wait_until_text_is`. Deleting the old one is a
+  separate change, so that this one is only ever measured against a spec that
+  was already passing.
+
 ## 0.2.0 — 2026-07-26
 
 Tkinter moves out of the OCR fallback and into the accessibility tree, and the

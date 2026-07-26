@@ -13,7 +13,7 @@ from contextlib import suppress
 from dataclasses import replace
 from typing import Protocol, TypeVar
 
-from pytest_uia.domain.errors import ElementNotFound, InputRefused
+from pytest_uia.domain.errors import ElementNotFound, InputRefused, TextNeverSettled
 from pytest_uia.domain.locator import Element, Locator
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.waiting import RetryPolicy, poll
@@ -22,12 +22,14 @@ DEFAULT_POLICY = RetryPolicy()
 
 T = TypeVar("T")
 
-# Both mean "the screen is not ready yet", and both clear on their own. A
-# control that has not painted is the obvious one; a desktop that is dropping
-# this process's synthetic input because a higher-integrity window holds the
-# foreground is the one that used to make gui suites flaky, because it looked
-# exactly like a click the application had ignored.
-_WORTH_ANOTHER_ATTEMPT = (ElementNotFound, InputRefused)
+# All three mean "the screen is not ready yet", and all three clear on their
+# own. A control that has not painted is the obvious one; a desktop that is
+# dropping this process's synthetic input because a higher-integrity window
+# holds the foreground is the one that used to make gui suites flaky, because it
+# looked exactly like a click the application had ignored; and a control still
+# reading the value it showed before the keys landed is the same lateness one
+# property further in.
+_WORTH_ANOTHER_ATTEMPT = (ElementNotFound, InputRefused, TextNeverSettled)
 
 
 def waiting_at_most(policy: RetryPolicy, timeout: float | None) -> RetryPolicy:
@@ -92,6 +94,26 @@ class UIElement:
     def wait_visible(self, *, timeout: float | None = None) -> UIElement:
         self._within_the_implicit_wait(self._one_that_is_painted, timeout)
         return self
+
+    def wait_until_text_is(
+        self, expected: str, *, timeout: float | None = None
+    ) -> UIElement:
+        self._within_the_implicit_wait(lambda: self._one_that_reads(expected), timeout)
+        return self
+
+    def _one_that_reads(self, expected: str) -> Element:
+        # Resolved inside the wait rather than once in front of it: a control
+        # held across the polls goes on reading the value the application has
+        # already replaced, which is the exact lateness this method exists for.
+        # A control that is not there yet stays an ElementNotFound, because the
+        # click that sets a label's text is usually the one that creates it —
+        # both kinds of lateness share this deadline, and each is still
+        # reported as what it is.
+        element = self._one_that_matches()
+        read = element.read_text()
+        if read != expected:
+            raise TextNeverSettled(f"{self._query} — reads {read!r}, not {expected!r}")
+        return element
 
     def _one_that_is_painted(self) -> Element:
         # Being in the tree is not being on screen: a WinForms control exists

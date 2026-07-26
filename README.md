@@ -88,6 +88,7 @@ is using. A launched one always is.
 | `element.click()` / `.type_text(s)` / `.read_text()` | Act on it, or read it. |
 | `element.exists(timeout=None)` | `True`/`False` instead of an exception, for both directions of assertion. |
 | `element.wait_visible(timeout=None)` | Block until it is actually painted, then return itself so a call can follow. |
+| `element.wait_until_text_is(expected, timeout=None)` | Block until it reads exactly `expected`, then return itself so a call can follow. |
 | `app.close()` / `app.pid` / `app.title` | End it, or ask about it. |
 | `--uia-timeout SECONDS` | The implicit wait every lookup inherits. Default 5 s; any call can override it with `timeout=`. |
 
@@ -109,6 +110,26 @@ Nothing else waits. Adapters look **once** and raise; only the driver retries, i
 element's implicit wait. That is deliberate: `uiautomation` retries for ten seconds
 internally by default, and underneath a polling loop of our own that turns every
 configured timeout into a multiple of itself.
+
+The implicit wait covers *finding* an element, and it also covers waiting for one to say
+something. An application reacts on its own message pump, so the repaint lands after the
+call that caused it has already returned — the classic race is typing into a box and
+asserting on it in the next line:
+
+```python
+app.textbox("Title").type_text("Buy milk")
+app.textbox("Title").wait_until_text_is("Buy milk")
+```
+
+That re-resolves the element and re-reads it until it says exactly that, inside the same
+implicit wait, and honours a per-call `timeout=` like everything else. Timing out raises
+**`TextNeverSettled`**, not `ElementNotFound`, and the message carries both what it read
+and what it expected — the control *was* found on every look, and blaming a missing
+element would send whoever reads the failure hunting for something that is right there.
+A control that has not been painted yet is an ordinary miss and keeps the wait going,
+since the click that sets a label's text is usually the click that creates it; if it
+never appears at all, that is still an `ElementNotFound`. `TextNeverSettled` is exported
+from the package alongside the other failures.
 
 Interactions prefer the accessibility pattern that needs no focus and steals none —
 `InvokePattern` for a click, `ValuePattern` for typing — and fall back to the mouse and
