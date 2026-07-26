@@ -231,8 +231,11 @@ def test_one_app_that_cannot_be_shut_down_does_not_strand_the_others() -> None:
     session.launch(WINFORMS_COMMAND)
     launcher.started[0].refuse_to_die()
 
-    # When the test that owned them ends
-    session.shutdown_all()
+    # When the test that owned them ends. The wedged app complains on its way
+    # past — that is the sibling spec's subject, and caught here so this one's
+    # warning does not surface in every unrelated run of the suite.
+    with pytest.warns(UserWarning, match=str(_FIRST_PID)):
+        session.shutdown_all()
 
     # Then the second app was still killed, whatever the first one did
     assert launcher.started[1].terminations == 1, (
