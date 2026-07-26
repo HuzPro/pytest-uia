@@ -729,6 +729,11 @@ def test_waiting_for_text_reports_what_it_read_and_what_it_expected_when_time_ru
     assert repr(A_TYPED_DRAFT) in reason, (
         f"the wait must say what it was waiting to read: {reason}"
     )
+    # and how long it gave the application to catch up, exactly as every other
+    # failure the driver raises against a deadline now does
+    assert "0.0s" in reason, (
+        f"the reader has to be told how long the text was waited for: {reason}"
+    )
 
 
 def test_waiting_for_text_honours_a_per_call_timeout_over_the_implicit_wait() -> None:

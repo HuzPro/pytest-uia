@@ -96,11 +96,15 @@ the scenario the design is proudest of handling.
   silence — blind is not the same as silent, and the run that caused the leak
   is the only one that knows about it.
 
-- **`ElementNotFound` says how long it waited.** `DialogNotFound` and
-  `InputRefused` both carry their deadline and this did not, so a control that
-  was never going to appear read exactly like one that had been given a tenth
-  of a second to. It now leads with `not on screen after 5.0s;` before the
-  chain's own account of where each link looked.
+- **Every failure raised against a deadline now names it.** `DialogNotFound`
+  and `InputRefused` carried theirs and `ElementNotFound` did not, so a control
+  that was never going to appear read exactly like one that had been given a
+  tenth of a second to; it now leads with `not on screen after 5.0s;` before
+  the chain's own account of where each link looked. Fixing only that would
+  have left `TextNeverSettled` as the last one without a deadline, immediately
+  after the reason for adding them had been argued — so it carries one too,
+  `still not reading it after 5.0s;` in front of the two readings it already
+  reported.
 
 - **OCR recognition moved off `asyncio.run`, which was a crash waiting for the
   first async test.** `asyncio.run` refuses to start a second event loop on a

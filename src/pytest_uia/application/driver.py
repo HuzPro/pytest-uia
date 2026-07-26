@@ -161,6 +161,12 @@ class UIElement:
             raise ElementNotFound(
                 f"not on screen after {policy.timeout}s; {miss}"
             ) from miss
+        except TextNeverSettled as unsettled:
+            # And the same again for the value that never arrived, so that no
+            # failure this method raises leaves out how long it was waited for.
+            raise TextNeverSettled(
+                f"still not reading it after {policy.timeout}s; {unsettled}"
+            ) from unsettled
 
 
 class Window(Protocol):
