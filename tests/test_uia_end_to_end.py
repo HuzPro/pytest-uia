@@ -148,6 +148,27 @@ def test_the_desktop_adapter_finds_a_launched_apps_window_and_searches_inside_it
     )
 
 
+def test_a_window_belonging_to_a_child_of_the_launched_process_is_still_found(
+    tk_app: App,
+) -> None:
+    # Given an app started through `sys.executable`, which inside a virtual
+    # environment on Windows is a launcher that runs the interpreter as a child
+    desktop = UiaDesktop()
+
+    # When the window of the pid the launch reported is asked for
+    window = desktop.window_of_process(tk_app.pid)
+
+    # Then the real window comes back, although its owner is a process nobody
+    # ever returned to the caller
+    assert window.title == "pytest-uia Tk Fixture", (
+        f"the adapter found some other window: {window.title!r}"
+    )
+    assert window.pid != tk_app.pid, (
+        "this spec proves nothing unless the launcher really did spawn a child; "
+        "if these pids are equal the environment has stopped reproducing the bug"
+    )
+
+
 def test_the_desktop_adapter_finds_a_window_by_the_caption_on_its_title_bar(
     winforms_app: App,
 ) -> None:

@@ -28,11 +28,12 @@ FIXTURE_APPS = Path(__file__).parent / "fixture_apps"
 # thirty has always been enough.
 _READY_TIMEOUT_SECONDS = 30.0
 
-# Not sys.executable, which inside a virtual environment on Windows is a copy
-# of CPython's venvlauncher.exe: it starts the real interpreter as a *child*
-# process and waits for it. The pid a launch reports is then the launcher's,
-# while the window belongs to the child, and no window is ever found for it.
-_INTERPRETER = str(Path(sys.base_prefix) / "python.exe")
+# Deliberately `sys.executable`, which inside a virtual environment on Windows
+# is a copy of CPython's venvlauncher.exe: it starts the real interpreter as a
+# *child* and waits for it, so the pid a launch reports owns no window at all.
+# It is also exactly what a user writes, and what the README shows, so the
+# product has to cope with it rather than the specs tiptoeing around it.
+_INTERPRETER = sys.executable
 
 
 def winforms_command() -> list[str]:

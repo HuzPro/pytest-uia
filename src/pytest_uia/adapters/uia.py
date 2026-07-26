@@ -28,6 +28,7 @@ import uiautomation as auto
 from comtypes import COMError
 
 from pytest_uia.adapters.input import WINDOWS_POINTER, PointerInput
+from pytest_uia.adapters.process_tree import process_family
 from pytest_uia.domain.errors import ElementNotFound, WindowNotFound
 from pytest_uia.domain.locator import Locator, LocatorChain
 from pytest_uia.domain.query import Query, Role
@@ -45,12 +46,21 @@ _CONTROL_TYPE_FOR_ROLE = {
 def resolve_main_window(pid: int) -> auto.Control:
     """Find the one visible top-level window a launched application owns.
 
+    "Owns" means the launched process *or anything it started*. The pid a
+    launch reports is often a shim — a virtual environment's `python.exe`, a
+    console-script wrapper, a `.bat` — that runs the real application as a
+    child, and the window then belongs to a pid the caller never saw.
+
     Deliberately unconstrained by control type: a Tk toplevel is not a
     WindowControl, and the thinnest trees are exactly the ones that matter.
+
+    The family is re-read on every call rather than cached, because this is
+    polled while an application starts and the child does not exist yet on the
+    first look.
     """
     search = auto.Control(
         searchDepth=_TOP_LEVEL_WINDOWS,
-        Compare=_owned_and_on_screen(pid),
+        Compare=_owned_and_on_screen(process_family(pid)),
     )
     if not search.Exists(maxSearchSeconds=_LOOK_ONCE):
         raise WindowNotFound(f"no visible top-level window for pid {pid}")
@@ -179,11 +189,13 @@ def _accepted(request: Callable[[], object]) -> bool:
     return True
 
 
-def _owned_and_on_screen(pid: int) -> Callable[[auto.Control, int], bool]:
+def _owned_and_on_screen(
+    family: frozenset[int],
+) -> Callable[[auto.Control, int], bool]:
     # UIA searches have no ProcessId key, so pid scoping has to ride in on the
     # Compare callback.
     def matches(control: auto.Control, _depth: int) -> bool:
-        return control.ProcessId == pid and not control.IsOffscreen
+        return control.ProcessId in family and not control.IsOffscreen
 
     return matches
 
