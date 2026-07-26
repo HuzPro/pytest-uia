@@ -23,6 +23,15 @@ from pytest_uia.domain.errors import InputRefused
 
 FIXTURE_APPS = Path(__file__).parent / "fixture_apps"
 
+# A `skipif` marks a test; it cannot stop pytest importing the module carrying
+# it. The specs named after the UIA adapter reach `uiautomation` and `comtypes`
+# at module scope, and both are declared `sys_platform == 'win32'`, so off
+# Windows they are not collected at all — otherwise the lane that exists to
+# prove the domain is platform-independent dies during collection instead.
+# Every other spec either imports its adapter inside the test or asks for it
+# with `pytest.importorskip`.
+collect_ignore_glob = [] if sys.platform == "win32" else ["test_uia_*.py"]
+
 # WinForms JITs most of System.Windows.Forms before it paints anything the
 # accessibility tree can see. A five-second wait failed here on a cold run;
 # thirty has always been enough.

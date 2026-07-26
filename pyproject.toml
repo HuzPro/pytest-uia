@@ -39,8 +39,12 @@ classifiers = [
 dependencies = [
     "pytest>=7.4",
     "uiautomation>=2.0; sys_platform == 'win32'",
+    # Declared rather than inherited: the UIA adapter imports COMError from it
+    # directly, and leaving it a transitive dependency of uiautomation makes
+    # this package's own imports somebody else's decision.
+    "comtypes>=1.2; sys_platform == 'win32'",
     # Core rather than an extra: pure ctypes with no dependencies of its own,
-    # and every user gets a screenshot when a gui test fails.
+    # and the OCR fallback cannot photograph a window without it.
     "mss>=10.0",
 ]
 
