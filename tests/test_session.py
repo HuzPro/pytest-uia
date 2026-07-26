@@ -12,7 +12,7 @@ from collections.abc import Sequence
 import pytest
 
 from pytest_uia.application.session import GuiSession
-from pytest_uia.domain.errors import WindowNotFound
+from pytest_uia.domain.errors import LaunchFailed, WindowNotFound
 from pytest_uia.domain.query import Query
 from pytest_uia.domain.waiting import RetryPolicy
 
@@ -51,10 +51,14 @@ class FakeWindow:
 class FakeProcess:
     """Test double: a launched process that counts how often it was ended."""
 
-    def __init__(self, pid: int) -> None:
+    def __init__(self, pid: int, *, exited_with: int | None = None) -> None:
         self.pid = pid
         self.terminations = 0
+        self._exited_with = exited_with
         self._unkillable = False
+
+    def exit_code(self) -> int | None:
+        return self._exited_with
 
     def refuse_to_die(self) -> None:
         self._unkillable = True
@@ -84,6 +88,22 @@ class DesktopPaintingLate:
         return self.window
 
 
+class DesktopShowingNothing:
+    """Test double: a desktop the launched command never puts a window on.
+
+    Distinct from a desktop that paints late: there is no attempt count at
+    which this one relents, which is what makes it able to say that a launch
+    gave up for a reason other than running out of patience.
+    """
+
+    def __init__(self) -> None:
+        self.lookups = 0
+
+    def window_of_process(self, pid: int) -> FakeWindow:
+        self.lookups += 1
+        raise WindowNotFound(f"no visible top-level window for pid {pid}")
+
+
 class DesktopShowingSomebodyElsesWindow:
     """Test double: a desktop with a window this session never launched."""
 
@@ -97,15 +117,23 @@ class DesktopShowingSomebodyElsesWindow:
 
 
 class RecordingLauncher:
-    """Test double: starts nothing, but remembers what it was asked to start."""
+    """Test double: starts nothing, but remembers what it was asked to start.
 
-    def __init__(self) -> None:
+    `exits_with` is the everyday disaster: a typo in the command path, an
+    import error in the app, a `.bat` that returns 1. The process really is
+    started, and it is dead again long before any window could have appeared.
+    """
+
+    def __init__(self, *, exits_with: int | None = None) -> None:
         self.commands: list[Sequence[str]] = []
         self.started: list[FakeProcess] = []
+        self._exits_with = exits_with
 
     def __call__(self, command: Sequence[str]) -> FakeProcess:
         self.commands.append(command)
-        process = FakeProcess(_FIRST_PID + len(self.started))
+        process = FakeProcess(
+            _FIRST_PID + len(self.started), exited_with=self._exits_with
+        )
         self.started.append(process)
         return process
 
@@ -128,6 +156,51 @@ def test_launch_waits_for_the_process_to_own_a_window_before_handing_back_an_app
     assert app.title == "Fixture", "the app is not wired to the window that appeared"
     assert launcher.commands == [WINFORMS_COMMAND], (
         "the session must start the command it was given"
+    )
+
+
+def test_launching_a_command_that_dies_at_once_fails_with_the_code_it_died_with() -> (
+    None
+):
+    # Given a command that exits before it could ever have painted anything —
+    # a typo in the path, an import error, a wrapper script returning non-zero
+    desktop = DesktopShowingNothing()
+    launcher = RecordingLauncher(exits_with=3)
+    session = GuiSession(desktop=desktop, start_process=launcher, policy=_NO_PAUSE)
+
+    # When a test launches it with the generous deadline a real app needs
+    with pytest.raises(LaunchFailed) as died:
+        session.launch(WINFORMS_COMMAND, ready_timeout=30.0)
+
+    # Then it was told at once, and told what actually happened. Waiting out the
+    # full deadline and then reporting "no visible top-level window for pid
+    # 19940" describes a process that has been dead the whole time, and is the
+    # first wall every newcomer with a mistyped command walks into
+    reason = str(died.value)
+    assert "3" in reason, f"the exit code is the whole diagnosis: {reason}"
+    assert desktop.lookups == 1, (
+        f"a dead process cannot grow a window, so the deadline is pure delay: "
+        f"{desktop.lookups} look(s)"
+    )
+
+
+def test_a_launcher_that_exits_once_its_real_application_is_up_is_not_a_failure() -> (
+    None
+):
+    # Given a shim that starts the application and returns straight away, with
+    # the window belonging to a pid the session never saw
+    desktop = DesktopPaintingLate(shows_window_on_attempt=1)
+    launcher = RecordingLauncher(exits_with=0)
+    session = GuiSession(desktop=desktop, start_process=launcher, policy=_NO_PAUSE)
+
+    # When a test launches through it
+    app = session.launch(WINFORMS_COMMAND)
+
+    # Then the window on screen settles it. `cmd /c`, a console-script wrapper
+    # and a `.bat` all exit the moment the real application is up, so an exited
+    # pid is only evidence of anything when there is no window to be found
+    assert app.title == "Fixture", (
+        "a launcher's own exit must not be mistaken for the application's"
     )
 
 
@@ -165,6 +238,24 @@ def test_one_app_that_cannot_be_shut_down_does_not_strand_the_others() -> None:
     assert launcher.started[1].terminations == 1, (
         "one unkillable app must not turn every later window into a leak"
     )
+
+
+def test_shutdown_says_out_loud_which_app_it_could_not_end() -> None:
+    # Given a session whose only app is wedged past saving
+    desktop = DesktopPaintingLate(shows_window_on_attempt=1)
+    launcher = RecordingLauncher()
+    session = GuiSession(desktop=desktop, start_process=launcher, policy=_NO_PAUSE)
+    session.launch(WINFORMS_COMMAND)
+    launcher.started[0].refuse_to_die()
+
+    # When the test that owned it ends
+    with pytest.warns(UserWarning, match=str(_FIRST_PID)) as complaints:
+        session.shutdown_all()
+
+    # Then teardown carried on — blind by design, so one bad app strands none of
+    # the others — but it did not carry on silently. An app left running poisons
+    # every test after it, and the run that caused it is the only one that knows
+    assert complaints, "a leak nobody is told about is a leak nobody looks for"
 
 
 def test_an_app_whose_window_never_appears_is_still_killed_at_shutdown() -> None:

@@ -12,6 +12,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
 
+from pytest_uia.domain.errors import ProcessStillRunning
+
 _DEFAULT_GRACE_SECONDS = 5.0
 
 # An app under test should put exactly one window on screen: its own. A console
@@ -69,8 +71,12 @@ class AppProcess:
     def pid(self) -> int:
         return self._process.pid
 
+    def exit_code(self) -> int | None:
+        """What the process ended with, or None while it is still running."""
+        return self._process.poll()
+
     def is_running(self) -> bool:
-        return self._process.poll() is None
+        return self.exit_code() is None
 
     def wait_for_exit(self, timeout_seconds: float) -> bool:
         """Block until the process is gone; True if it went before the timeout."""
@@ -84,12 +90,19 @@ class AppProcess:
         """Escalate through ruder and ruder ways of ending the process.
 
         Every rung gets the grace period to work, and the ladder stops at the
-        first one that leaves nothing running.
+        first one that leaves nothing running. Running out of rungs raises:
+        this used to fall off the end of the loop and return as though it had
+        worked, so an app that survived `taskkill /t /f` stayed on the next
+        test's screen with nothing anywhere saying which run left it there.
         """
         for request_exit in self._escalating_exit_requests():
             request_exit()
             if self.wait_for_exit(grace_seconds):
                 return
+        raise ProcessStillRunning(
+            f"pid {self.pid} survived terminate, kill and a forced kill of its "
+            f"whole tree, and is still running"
+        )
 
     def _escalating_exit_requests(self) -> tuple[Callable[[], None], ...]:
         return (

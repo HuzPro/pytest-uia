@@ -14,12 +14,14 @@ from pytest_uia.domain.errors import (
     DialogStillOpen,
     ElementNotFound,
     InputRefused,
+    LaunchFailed,
+    ProcessStillRunning,
     TextNeverSettled,
     WindowNotFound,
 )
 from pytest_uia.domain.query import Query, Role
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 __all__ = [
     "App",
@@ -29,6 +31,8 @@ __all__ = [
     "ElementNotFound",
     "GuiSession",
     "InputRefused",
+    "LaunchFailed",
+    "ProcessStillRunning",
     "Query",
     "Role",
     "TextNeverSettled",

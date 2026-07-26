@@ -9,8 +9,8 @@ desktop arrives as a port.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from contextlib import suppress
 from typing import Protocol
+from warnings import warn
 
 from pytest_uia.application.app_process import AppProcess
 from pytest_uia.application.driver import (
@@ -19,7 +19,7 @@ from pytest_uia.application.driver import (
     RunningProcess,
     Window,
 )
-from pytest_uia.domain.errors import WindowNotFound
+from pytest_uia.domain.errors import LaunchFailed, WindowNotFound
 from pytest_uia.domain.waiting import RetryPolicy, poll
 
 
@@ -33,6 +33,17 @@ class WindowUnderTest(Window, Protocol):
 
     @property
     def pid(self) -> int: ...
+
+
+class LaunchedProcess(RunningProcess, Protocol):
+    """A process this session started, and can therefore ask how it ended.
+
+    Everything the driver already needs of a process, plus the one thing only a
+    launch does: decide whether a window is still coming, or whether the
+    command is already over.
+    """
+
+    def exit_code(self) -> int | None: ...
 
 
 class Desktop(Protocol):
@@ -73,7 +84,7 @@ class GuiSession:
         self,
         *,
         desktop: Desktop,
-        start_process: Callable[[Sequence[str]], AppProcess] = AppProcess.launch,
+        start_process: Callable[[Sequence[str]], LaunchedProcess] = AppProcess.launch,
         policy: RetryPolicy = DEFAULT_POLICY,
     ) -> None:
         self._desktop = desktop
@@ -89,7 +100,7 @@ class GuiSession:
         # paints is exactly the one that would otherwise be left running.
         self._unclaimed.append(process)
         window = poll(
-            lambda: self._desktop.window_of_process(process.pid),
+            lambda: self._whatever_window_it_paints(process),
             self._looking_for_at_most(ready_timeout),
             retry_on=WindowNotFound,
         )
@@ -122,6 +133,18 @@ class GuiSession:
         self._apps.clear()
         self._unclaimed.clear()
 
+    def _whatever_window_it_paints(self, process: LaunchedProcess) -> WindowUnderTest:
+        # The window is looked for first and the process only questioned when
+        # there was none, because a launcher that exits the moment the real
+        # application is up — `cmd /c`, a console-script shim, a `.bat` — has
+        # done nothing wrong. An exit is evidence of failure only when there is
+        # no window to be found.
+        try:
+            return self._desktop.window_of_process(process.pid)
+        except WindowNotFound:
+            _refuse_to_wait_for_a_command_that_is_already_over(process)
+            raise
+
     def _looking_for_at_most(self, timeout: float) -> RetryPolicy:
         # A launching app repaints on its own message pump, so waiting for its
         # window is the same kind of waiting as waiting for a control in it:
@@ -141,9 +164,34 @@ def session_on_this_desktop(*, policy: RetryPolicy = DEFAULT_POLICY) -> GuiSessi
     return GuiSession(desktop=UiaDesktop(), policy=policy)
 
 
+def _refuse_to_wait_for_a_command_that_is_already_over(
+    process: LaunchedProcess,
+) -> None:
+    """Fail now, with the exit code, rather than out-waiting a dead process.
+
+    The motivating failure: `gui.launch([sys.executable, "-c", "sys.exit(3)"])`
+    spent the entire ready timeout — thirty seconds by default — and then
+    reported `WindowNotFound: no visible top-level window for pid 19940`, about
+    a process that had been dead almost immediately, mentioning neither the
+    exit nor its code. That is the first wall every newcomer with a typo in a
+    command path walks into.
+    """
+    code = process.exit_code()
+    if code is None:
+        return
+    raise LaunchFailed(
+        f"the launched command exited with code {code} before it owned a window"
+    )
+
+
 def _whatever_happens(step: Callable[[], None]) -> None:
     # Deliberately blind, and deliberately per step. Teardown is the one place
     # where stopping at the first failure is the worst possible answer: every
     # app after it would be left on the next test's screen.
-    with suppress(Exception):
+    try:
         step()
+    except Exception as failure:  # noqa: BLE001 — see above; every step must run
+        # Blind is not the same as silent. An app that could not be ended goes
+        # on to poison every test after it, and this teardown is the only place
+        # that knows which run left it there.
+        warn(f"pytest-uia could not shut down an app it launched: {failure}")

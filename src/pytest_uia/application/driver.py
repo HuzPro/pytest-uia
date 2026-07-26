@@ -154,6 +154,13 @@ class UIElement:
             raise InputRefused(
                 f"synthetic mouse input was refused for {policy.timeout}s; {refusal}"
             ) from refusal
+        except ElementNotFound as miss:
+            # Same bargain, and the symmetry matters: without the deadline, a
+            # control that was never going to appear reads exactly like one
+            # that was given a tenth of a second to.
+            raise ElementNotFound(
+                f"not on screen after {policy.timeout}s; {miss}"
+            ) from miss
 
 
 class Window(Protocol):

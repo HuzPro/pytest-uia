@@ -9,7 +9,10 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+
 from pytest_uia.application.app_process import AppProcess
+from pytest_uia.domain.errors import ProcessStillRunning
 
 # A child that outlives the whole suite unless something really kills it.
 _SLEEPS_FOR_MINUTES = "import time; time.sleep(300)"
@@ -80,3 +83,21 @@ def test_terminate_escalates_to_a_forced_tree_kill_when_the_process_ignores_it()
         "an app that ignores terminate must still be killed by pid, children and all"
     )
     assert not process.is_running(), "terminate must not give up while the app lives"
+
+
+def test_terminate_says_so_when_the_last_resort_leaves_the_process_alive() -> None:
+    # Given a process that survives even a forced kill of its whole tree
+    immortal = StubbornProcess()
+    process = AppProcess(immortal, force_kill_tree=lambda _pid: None)
+
+    # When it is asked to terminate
+    with pytest.raises(ProcessStillRunning) as wedged:
+        process.terminate(grace_seconds=0.0)
+
+    # Then running out of rungs is reported rather than returned from. A
+    # terminate that ends quietly with the app still on screen poisons every
+    # test after it, and leaves nothing behind that says which one did it
+    assert str(_UNRESPONSIVE_PID) in str(wedged.value), (
+        f"the pid still running is the only lead anyone has: {wedged.value}"
+    )
+    assert process.is_running(), "the spec's own premise is wrong if it died"

@@ -400,6 +400,35 @@ def test_element_resolution_retries_until_the_implicit_wait_expires_then_raises(
     )
 
 
+def test_an_element_that_never_appears_says_how_long_it_was_waited_for() -> None:
+    # Given a chain that never finds the element, and a two-second implicit wait
+    chain = ChainThatNeverFinds()
+    button = UIElement(
+        NEW_TASK_BUTTON,
+        chain,
+        RetryPolicy(timeout=2.0, interval=0.0),
+        clock=TickingClock(step=0.5),
+        sleep=lambda _seconds: None,
+    )
+
+    # When the test clicks it
+    with pytest.raises(ElementNotFound) as miss:
+        button.click()
+
+    # Then the failure says how long it kept looking, which only the driver
+    # knows, as well as where it looked, which only the chain can say. Both
+    # `DialogNotFound` and `InputRefused` already carry the deadline, and a
+    # reader who is not told it cannot tell a control that never appears from
+    # one that was simply given a tenth of a second to
+    reason = str(miss.value)
+    assert "2.0s" in reason, (
+        f"the reader has to be told how long the element was waited for: {reason}"
+    )
+    assert "nothing on screen matches" in reason, (
+        f"the chain's own explanation was swallowed: {reason}"
+    )
+
+
 def test_a_click_the_desktop_refuses_is_tried_again_until_the_foreground_frees_up() -> (
     None
 ):
