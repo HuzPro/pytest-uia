@@ -14,6 +14,8 @@ class Role(Enum):
     """The kinds of element a test can ask for. Grows only as a cycle demands it."""
 
     BUTTON = auto()
+    TEXT = auto()
+    TEXTBOX = auto()
 
 
 @dataclass(frozen=True)

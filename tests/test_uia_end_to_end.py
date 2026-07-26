@@ -1,0 +1,147 @@
+"""Behavioral spec for driving a real window through the accessibility tree.
+
+These specs launch an actual application on the developer's desktop. What they
+prove cannot be proved with a test double, and what they cost is a few seconds
+and exclusive use of the screen.
+"""
+
+from __future__ import annotations
+
+import sys
+import time
+
+import pytest
+
+from pytest_uia.adapters.uia import UiaLocator, close_window, resolve_main_window
+from pytest_uia.application.app_process import AppProcess
+from pytest_uia.domain.errors import ElementNotFound
+from pytest_uia.domain.query import Query, Role
+from pytest_uia.domain.waiting import RetryPolicy, poll
+
+pytestmark = [
+    pytest.mark.gui,
+    pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="UI Automation is a Windows API",
+    ),
+]
+
+NEW_TASK_BUTTON = Query(role=Role.BUTTON, name="New Task")
+ABSENT_BUTTON = Query(role=Role.BUTTON, name="Delete Everything")
+TASK_CREATED_LABEL = Query(role=Role.TEXT, name="task created")
+TITLE_TEXTBOX = Query(role=Role.TEXTBOX, name="Title")
+
+# Generous: a whole window's subtree is walked in milliseconds. Anything near a
+# second means something is waiting that should not be.
+_ONE_SHOT_BUDGET_SECONDS = 1.0
+
+# The app repaints on its own message pump, so its reaction lands after the
+# call that caused it has already returned.
+_REACTION_POLICY = RetryPolicy(timeout=5.0, interval=0.25)
+
+# Long enough for an app to run whatever it does on the way out, short enough
+# that a hung one is still reported as a failure rather than as a slow suite.
+_GRACEFUL_EXIT_SECONDS = 5.0
+
+
+def test_uia_locator_finds_a_button_by_its_accessible_name_in_a_real_window(
+    winforms_app: AppProcess,
+) -> None:
+    # Given a locator over the window the app just put on screen
+    locator = UiaLocator(resolve_main_window(winforms_app.pid))
+
+    # When the button is looked up by the name a screen reader would announce
+    button = locator.find(NEW_TASK_BUTTON)
+
+    # Then the control that comes back is the one the user can see
+    assert button.read_text() == "New Task", (
+        "the located control is not the button the fixture app shows"
+    )
+
+
+def test_a_control_found_in_a_painted_window_reports_itself_as_visible(
+    winforms_app: AppProcess,
+) -> None:
+    # Given the button of a window that is up and painted
+    locator = UiaLocator(resolve_main_window(winforms_app.pid))
+    button = locator.find(NEW_TASK_BUTTON)
+
+    # When the test asks whether the user could actually see it
+    visible = button.is_visible()
+
+    # Then it says yes, because it occupies real pixels on the screen
+    assert visible, "a control found in a painted window should report as visible"
+
+
+def test_uia_locator_raises_element_not_found_for_a_name_the_window_does_not_contain(
+    winforms_app: AppProcess,
+) -> None:
+    # Given a locator over a window that shows no such button
+    locator = UiaLocator(resolve_main_window(winforms_app.pid))
+
+    # When a name the app never puts on screen is looked up
+    started = time.monotonic()
+    with pytest.raises(ElementNotFound) as miss:
+        locator.find(ABSENT_BUTTON)
+    elapsed = time.monotonic() - started
+
+    # Then the miss comes back at once, rather than after a wait of its own
+    assert elapsed < _ONE_SHOT_BUDGET_SECONDS, (
+        f"the miss took {elapsed:.2f}s: uiautomation is retrying underneath "
+        "poll(), which makes every configured timeout a multiple of itself"
+    )
+    # and it names the window it looked in, since that is all a failing test leaves
+    assert "pytest-uia WinForms Fixture" in str(miss.value), (
+        f"the miss does not say where it looked: {miss.value}"
+    )
+
+
+def test_clicking_a_button_through_the_accessibility_tree_triggers_its_action(
+    winforms_app: AppProcess,
+) -> None:
+    # Given the fixture app's button, with its status label still saying "ready"
+    locator = UiaLocator(resolve_main_window(winforms_app.pid))
+    button = locator.find(NEW_TASK_BUTTON)
+
+    # When it is clicked the way an assistive technology would invoke it
+    button.click()
+
+    # Then the app acts on it: a label announcing the new task appears
+    status = poll(
+        lambda: locator.find(TASK_CREATED_LABEL),
+        _REACTION_POLICY,
+        retry_on=ElementNotFound,
+    )
+
+    assert status.read_text() == "task created", (
+        "the click never reached the button's own handler"
+    )
+
+
+def test_typing_into_a_textbox_through_the_value_pattern_sets_its_text(
+    winforms_app: AppProcess,
+) -> None:
+    # Given the app's empty title box, found by the name its label gives it
+    locator = UiaLocator(resolve_main_window(winforms_app.pid))
+    title = locator.find(TITLE_TEXTBOX)
+
+    # When a test types into it
+    title.type_text("Write the report")
+
+    # Then the box holds exactly what was typed, character for character
+    assert title.read_text() == "Write the report", (
+        "an edit control's content is its value, not its accessible name"
+    )
+
+
+def test_window_close_ends_the_application_process(winforms_app: AppProcess) -> None:
+    # Given the window the app is running for
+    window = resolve_main_window(winforms_app.pid)
+
+    # When it is closed the way the title bar's X closes it
+    close_window(window)
+
+    # Then the app shuts itself down, leaving nothing behind to kill
+    assert winforms_app.wait_for_exit(_GRACEFUL_EXIT_SECONDS), (
+        f"pid {winforms_app.pid} is still running after its last window closed"
+    )

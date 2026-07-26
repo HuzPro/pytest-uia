@@ -9,3 +9,7 @@ from __future__ import annotations
 
 class ElementNotFound(Exception):
     """No locator in the chain could resolve the query to an on-screen element."""
+
+
+class WindowNotFound(Exception):
+    """A launched application owns no visible top-level window (yet)."""
