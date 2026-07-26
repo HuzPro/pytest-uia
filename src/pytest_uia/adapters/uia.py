@@ -22,12 +22,13 @@ thread is a trap rather than an optimisation.
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib.util import find_spec
 
 import uiautomation as auto
 from comtypes import COMError
 
 from pytest_uia.domain.errors import ElementNotFound, WindowNotFound
-from pytest_uia.domain.locator import LocatorChain
+from pytest_uia.domain.locator import Locator, LocatorChain
 from pytest_uia.domain.query import Query, Role
 
 _TOP_LEVEL_WINDOWS = 1  # search depth: the desktop root's own children
@@ -175,6 +176,32 @@ def _owned_and_on_screen(pid: int) -> Callable[[auto.Control, int], bool]:
     return matches
 
 
+def _locators_for(window: auto.Control) -> list[Locator]:
+    """The accessibility tree first, always; pixels only if nothing answered.
+
+    OCR joins the chain only when the `ocr` extra is installed, so a project
+    that never needs it never pays for it — and one that installs it gets the
+    fallback with nothing to configure.
+    """
+    locators: list[Locator] = [UiaLocator(window)]
+    if _windows_ocr_is_installed():
+        # Imported here rather than at module scope: this module has to import
+        # on machines where the `ocr` extra was never installed.
+        from pytest_uia.adapters.ocr import OcrLocator
+
+        locators.append(OcrLocator(window))
+    return locators
+
+
+def _windows_ocr_is_installed() -> bool:
+    try:
+        return find_spec("winrt.windows.media.ocr") is not None
+    except ModuleNotFoundError:
+        # find_spec imports every parent package on the way down, so a missing
+        # extra raises out of it rather than answering None.
+        return False
+
+
 class UiaWindow:
     """Adapter presenting a top-level UIA control as a window under test.
 
@@ -185,9 +212,8 @@ class UiaWindow:
 
     def __init__(self, control: auto.Control) -> None:
         self._control = control
-        # The single place the locator strategy is decided: an OCR link for
-        # windows with no accessibility tree joins this chain behind UIA.
-        self._contents = LocatorChain([UiaLocator(control)])
+        # The single place the locator strategy is decided.
+        self._contents = LocatorChain(_locators_for(control))
 
     @property
     def title(self) -> str:

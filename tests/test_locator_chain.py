@@ -30,6 +30,18 @@ class MissingLocator:
         raise ElementNotFound(query)
 
 
+class CountingLocator:
+    """Test double: resolves the query, and remembers being asked to."""
+
+    def __init__(self, element: Element) -> None:
+        self.element = element
+        self.consultations = 0
+
+    def find(self, query: Query) -> Element:
+        self.consultations += 1
+        return self.element
+
+
 class NoAccessibilityTreeLocator:
     """Test double: misses the way UIA does on a canvas-drawn window."""
 
@@ -83,6 +95,27 @@ def test_falls_back_to_the_next_locator_when_the_first_cannot_find_the_element()
 
     # Then the primary locator's miss is absorbed and the fallback answers
     assert found is element
+
+
+def test_uia_is_consulted_before_ocr_for_windows_with_an_accessibility_tree() -> None:
+    # Given a window both locators could answer for: it has a tree, and it is
+    # also painted on the screen like everything else
+    accessibility_tree = CountingLocator(object())
+    reading_the_pixels = CountingLocator(object())
+    chain = LocatorChain([accessibility_tree, reading_the_pixels])
+
+    # When an element is asked for
+    found = chain.find(NEW_TASK_BUTTON)
+
+    # Then the tree answered it
+    assert found is accessibility_tree.element
+
+    # and the screen was never read at all, which is what keeps a query for a
+    # button from matching a label that merely says the same words
+    assert reading_the_pixels.consultations == 0, (
+        "OCR ran for a window that had already answered through its tree: it "
+        "is slower, and it is blind to the role the query asked for"
+    )
 
 
 def test_element_not_found_reports_the_query_and_every_locator_that_missed() -> None:

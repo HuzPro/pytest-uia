@@ -2,13 +2,17 @@
 
 The `gui` fixture a user gets comes from the installed plugin
 (:mod:`pytest_uia.hooks`) and is deliberately not redefined here. What this
-adds is one launched fixture app, built on the same session the plugin hands
-out, so the specs below exercise the shipped wiring rather than a copy of it.
+adds is the two fixture apps, each launched through the same session the plugin
+hands out, so the specs below exercise the shipped wiring rather than a copy of
+it. The pair is the point: one window exposes a full accessibility tree and one
+exposes nothing usable, and the same journey has to run against both.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import sys
+from collections.abc import Iterator, Sequence
+from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
@@ -21,6 +25,12 @@ FIXTURE_APPS = Path(__file__).parent / "fixture_apps"
 # accessibility tree can see. A five-second wait failed here on a cold run;
 # thirty has always been enough.
 _READY_TIMEOUT_SECONDS = 30.0
+
+# Not sys.executable, which inside a virtual environment on Windows is a copy
+# of CPython's venvlauncher.exe: it starts the real interpreter as a *child*
+# process and waits for it. The pid a launch reports is then the launcher's,
+# while the window belongs to the child, and no window is ever found for it.
+_INTERPRETER = str(Path(sys.base_prefix) / "python.exe")
 
 
 def winforms_command() -> list[str]:
@@ -43,14 +53,43 @@ def winforms_command() -> list[str]:
     ]
 
 
+def tk_command() -> list[str]:
+    """How the thin-accessibility-tree fixture app is started."""
+    return [_INTERPRETER, str(FIXTURE_APPS / "tk_app.py")]
+
+
+def windows_ocr_is_installed() -> bool:
+    """Whether the `ocr` extra is present, asked in the one way that is safe.
+
+    Deliberately not the adapter's own copy of this check: that lives behind an
+    import of `uiautomation`, and every spec module here is imported on
+    platforms where there is no such package to import.
+    """
+    try:
+        return find_spec("winrt.windows.media.ocr") is not None
+    except ModuleNotFoundError:
+        # find_spec imports each parent package on the way down, so a missing
+        # extra raises out of it rather than answering None.
+        return False
+
+
 @pytest.fixture
 def winforms_app() -> Iterator[App]:
+    yield from _app_launched_by_its_own_session(winforms_command())
+
+
+@pytest.fixture
+def tk_app() -> Iterator[App]:
+    yield from _app_launched_by_its_own_session(tk_command())
+
+
+def _app_launched_by_its_own_session(command: Sequence[str]) -> Iterator[App]:
     # Imported inside the fixture, not at module scope: conftest is imported on
     # every platform, including the lane where uiautomation is not installed.
     from pytest_uia.application.session import session_on_this_desktop
 
     session = session_on_this_desktop()
     try:
-        yield session.launch(winforms_command(), ready_timeout=_READY_TIMEOUT_SECONDS)
+        yield session.launch(command, ready_timeout=_READY_TIMEOUT_SECONDS)
     finally:
         session.shutdown_all()

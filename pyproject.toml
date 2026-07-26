@@ -39,10 +39,24 @@ classifiers = [
 dependencies = [
     "pytest>=7.4",
     "uiautomation>=2.0; sys_platform == 'win32'",
+    # Core rather than an extra: pure ctypes with no dependencies of its own,
+    # and every user gets a screenshot when a gui test fails.
+    "mss>=10.0",
 ]
 
 [project.optional-dependencies]
 dev = ["ruff==0.16.*"]
+# Windows' own OCR engine, reached through the pywinrt projections. `winsdk` is
+# not an option: it has no wheels for 3.13. These base packages do not depend on
+# each other, so every namespace the adapter touches has to be named here.
+ocr = [
+    "winrt-runtime>=3.2,<4; sys_platform == 'win32'",
+    "winrt-Windows.Media.Ocr>=3.2,<4; sys_platform == 'win32'",
+    "winrt-Windows.Graphics.Imaging>=3.2,<4; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=3.2,<4; sys_platform == 'win32'",
+    "winrt-Windows.Foundation>=3.2,<4; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections>=3.2,<4; sys_platform == 'win32'",
+]
 
 [project.entry-points.pytest11]
 uia = "pytest_uia.plugin"
