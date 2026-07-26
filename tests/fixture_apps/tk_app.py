@@ -1,84 +1,157 @@
-"""Fixture app whose contents have no accessibility tree, driven by the OCR specs.
+"""Fixture app: a Tk window that says who its widgets are.
 
-Stands in for the surfaces UIA cannot see: ATLAS's Tk first-run dialogs, and
-custom-drawn UI generally. Same journey as the WinForms fixture — a "New Task"
-trigger and a status line that becomes "task created" — so the hybrid spec can
-run one test body against both.
+Where it plugs in: launched as a subprocess by `tests/conftest.py`, then driven
+from the pytest process through the accessibility tree — the same tree, and the
+same adapter, that the WinForms fixture is driven through. `tk_uia.enable()` is
+what makes that possible: bare Tk puts every widget in the tree under no name
+and mostly the wrong control type, so a query by name and role matches nothing
+at all.
 
-Stdlib only, on purpose: a fixture app that needed installing would be a second
-thing to debug when a gui spec goes red.
+Classic `tk` throughout, never `ttk`: measured across all fifteen themed widget
+types, each arrives as an anonymous `PaneControl` and `ttk.Button` has no
+InvokePattern, so ttk is strictly the worse starting point.
+
+The journey is the WinForms fixture's journey widget for widget — a title box,
+a "New Task" trigger, and a status line that becomes "task created" — because
+the whole point of the project is that one test body drives both.
 """
 
 from __future__ import annotations
 
-import ctypes
 import tkinter as tk
+from dataclasses import dataclass
+
+import tk_uia
+from legible import (
+    FONT,
+    INK,
+    PAPER,
+    matched_to_this_displays_dpi,
+    paint_at_physical_pixel_resolution,
+)
+from tk_uia import Strategy
 
 WINDOW_TITLE = "pytest-uia Tk Fixture"
 NEW_TASK = "New Task"
+TITLE = "Title"
 READY = "ready"
 TASK_CREATED = "task created"
 
-# OCR's accuracy floor is small anti-aliased text on a low-contrast background,
-# so this fixture stays deliberately legible: black on white, 12 pt, and enough
-# padding that neighbouring words never merge into one recognised run.
-_FACE = "Segoe UI"
-_POINTS = 12
-_INK = "#000000"
-_PAPER = "#ffffff"
+# Chosen by this application rather than derived from a widget path: an id that
+# moved whenever the layout was repacked would make every repack a breaking
+# change for whoever locates by it.
+NEW_TASK_NUMBER = 4207
 
-_PER_MONITOR_DPI_AWARE = 2
-_POINTS_PER_INCH = 72
-_LOGPIXELSX = 88  # GetDeviceCaps index: the display's horizontal dots per inch
+_A_WRITE = "write"
+
+
+@dataclass(frozen=True)
+class Widgets:
+    """The widgets the specs drive, held together while they are wired up."""
+
+    root: tk.Tk
+    title_entry: tk.Entry
+    draft: tk.StringVar
+    new_task: tk.Button
+    status: tk.StringVar
+    status_label: tk.Label
 
 
 def main() -> None:
-    _paint_at_physical_pixel_resolution()
-    root = _window()
-    status = tk.Label(root, text=READY, font=(_FACE, _POINTS), fg=_INK, bg=_PAPER)
-    status.pack(pady=(30, 20))
-    tk.Button(
-        root,
-        text=NEW_TASK,
-        font=(_FACE, _POINTS),
-        fg=_INK,
-        bg=_PAPER,
-        padx=16,
-        pady=8,
-        command=lambda: status.configure(text=TASK_CREATED),
-    ).pack()
-    root.mainloop()
+    paint_at_physical_pixel_resolution()
+    widgets = _a_window_of_classic_tk_widgets()
+    # Realised and mapped before accessibility is switched on. `<Map>` fires
+    # once, on the way up, so everything already showing is annotated by
+    # `enable()`'s own sweep instead — which is the path any application that
+    # builds its window first will take.
+    widgets.root.update()
+
+    _accessibility_switched_on(widgets.root)
+    _the_things_no_widget_can_say_for_itself(widgets)
+
+    widgets.root.mainloop()
 
 
-def _window() -> tk.Tk:
+def _a_window_of_classic_tk_widgets() -> Widgets:
     root = tk.Tk()
     root.title(WINDOW_TITLE)
-    root.geometry("460x240")
-    root.configure(bg=_PAPER)
-    # Kept in front so a screen grab of this window's rectangle contains this
-    # window, rather than whatever the developer left on top of it.
+    root.geometry("460x280")
+    root.configure(bg=PAPER)
+    # Kept in front because both of the driver's fallbacks act on pixels: a
+    # control whose provider only pretends to support Invoke is clicked with
+    # the real mouse, and OCR photographs whatever is on top.
     root.attributes("-topmost", True)
-    root.tk.call("tk", "scaling", _screen_dots_per_inch() / _POINTS_PER_INCH)
-    return root
+    matched_to_this_displays_dpi(root)
+
+    status = tk.StringVar(value=READY)
+    status_label = tk.Label(root, textvariable=status, font=FONT, fg=INK, bg=PAPER)
+    status_label.pack(pady=(30, 20))
+
+    draft = tk.StringVar()
+    title_entry = tk.Entry(
+        root, textvariable=draft, font=FONT, fg=INK, bg=PAPER, width=28
+    )
+    title_entry.pack(pady=(0, 20))
+
+    new_task = tk.Button(
+        root,
+        text=NEW_TASK,
+        font=FONT,
+        fg=INK,
+        bg=PAPER,
+        padx=16,
+        pady=8,
+        command=lambda: status.set(TASK_CREATED),
+    )
+    new_task.pack()
+
+    return Widgets(
+        root=root,
+        title_entry=title_entry,
+        draft=draft,
+        new_task=new_task,
+        status=status,
+        status_label=status_label,
+    )
 
 
-def _paint_at_physical_pixel_resolution() -> None:
-    """Opt out of DPI virtualisation, which is OCR's worst enemy.
+def _accessibility_switched_on(root: tk.Tk) -> None:
+    strategy = tk_uia.enable(root)
+    if strategy is not Strategy.ANNOTATED:
+        # Loudly, and before the window is worth reading: a version gate that
+        # mis-fires leaves every widget exactly as bare Tk left it, and a suite
+        # that only asserted "the name is right" would report that as an
+        # ordinary miss against the driver.
+        raise SystemExit(
+            f"tk_uia.enable reported {strategy}, not {Strategy.ANNOTATED}: "
+            "nothing in this window has been annotated, so the specs driving "
+            "it would be measuring bare Tk"
+        )
 
-    A process that is not DPI-aware gets its window bitmap-stretched by Windows
-    on a scaled display. The text the test then reads back is a blurred copy of
-    text that was rendered for a smaller screen.
-    """
-    ctypes.windll.shcore.SetProcessDpiAwareness(_PER_MONITOR_DPI_AWARE)
+
+def _the_things_no_widget_can_say_for_itself(widgets: Widgets) -> None:
+    # An entry has no `-text` to be named from, and a name invented from its Tk
+    # path would be worse than no name at all, so this is the application's job
+    # — exactly as the WinForms fixture sets `AccessibleName` on its own
+    # textbox, and for exactly the same reason.
+    tk_uia.set_acc_name(widgets.title_entry, TITLE)
+    _an_entry_that_keeps_saying_what_is_in_it(widgets)
+    # A label showing a `textvariable` has no `-text` of its own either, and it
+    # is the one widget here whose entire job is to report what just happened.
+    tk_uia.bind_text_variable(widgets.status_label, widgets.status)
+    tk_uia.set_automation_id(widgets.new_task, NEW_TASK_NUMBER)
 
 
-def _screen_dots_per_inch() -> float:
-    device_context = ctypes.windll.user32.GetDC(0)
-    try:
-        dots_per_inch = ctypes.windll.gdi32.GetDeviceCaps(device_context, _LOGPIXELSX)
-    finally:
-        ctypes.windll.user32.ReleaseDC(0, device_context)
-    return float(dots_per_inch)
+def _an_entry_that_keeps_saying_what_is_in_it(widgets: Widgets) -> None:
+    # What a client reads out of an edit control is its *value*, and nothing
+    # updates that on the application's behalf. Without this the box would
+    # announce the name "Title" and an empty value forever, however much was
+    # typed into it.
+    def announce_what_was_typed(*_: object) -> None:
+        tk_uia.set_acc_value(widgets.title_entry, widgets.draft.get())
+
+    widgets.draft.trace_add(_A_WRITE, announce_what_was_typed)
+    announce_what_was_typed()
 
 
 if __name__ == "__main__":

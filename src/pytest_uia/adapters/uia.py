@@ -5,7 +5,14 @@ stdlib-only so it can be reasoned about, and unit tested, with no desktop at
 all. `UiaLocator` and `UiaElement` are GoF Adapters: they present the domain's
 Locator and Element ports in terms of UIA controls and patterns.
 
-Two rules hold for everything below.
+Three rules hold for everything below.
+
+An untrusted provider can be *read*, but not *driven*. Where a control's owner
+never wrote a UIA provider, Windows fabricates one out of the old MSAA API, and
+that bridge advertises patterns it cannot honour: on an owner-drawn widget
+`Invoke` and `SetValue` return cleanly and reach nothing. Reading is a different
+matter — a name or a value served out of an annotation store is the
+application's own word about itself — so only the *acting* half is gated.
 
 Every search is one-shot. Left alone, `uiautomation` retries inside `Exists`
 and waits ten seconds inside any property access on a control it has not found
@@ -23,6 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from importlib.util import find_spec
+from typing import Protocol
 
 import uiautomation as auto
 from comtypes import COMError
@@ -35,6 +43,27 @@ from pytest_uia.domain.query import Query, Role
 
 _TOP_LEVEL_WINDOWS = 1  # search depth: the desktop root's own children
 _LOOK_ONCE = 0  # maxSearchSeconds: waiting is poll()'s job, not the library's
+
+# What UIA calls the bridge it puts in front of any plain HWND whose owner
+# never implemented a provider of its own.
+_THE_GENERIC_PROXY = "Microsoft: MSAA Proxy"
+
+# Measured, not assumed: WinForms is served by that same proxy and its buttons
+# are owner-drawn exactly like Tk's, so neither the marker nor the window style
+# separates them. The framework does — 'WinForm' against Tk's 'Win32' — because
+# behind the proxy these toolkits implement IAccessible themselves, and a
+# BM_CLICK they never see is not how their controls are reached.
+_FRAMEWORKS_THAT_ANSWER_FOR_THEMSELVES = frozenset(
+    {
+        "WinForm",
+        "WPF",
+        "XAML",
+        "DirectUI",
+        "Chrome",
+        "Silverlight",
+        "JavaAccessBridge",
+    }
+)
 
 _CONTROL_TYPE_FOR_ROLE = {
     Role.BUTTON: auto.ControlType.ButtonControl,
@@ -90,8 +119,14 @@ def close_window(window: auto.Control) -> None:
 class UiaLocator:
     """Adapter presenting the accessibility tree as the domain's Locator."""
 
-    def __init__(self, window: auto.Control) -> None:
+    def __init__(
+        self, window: auto.Control, *, pointer: PointerInput = WINDOWS_POINTER
+    ) -> None:
         self._window = window
+        # Passed through rather than left to the element's own default, exactly
+        # as OcrLocator does: it is the only way a spec can watch whether the
+        # mouse was reached for at all.
+        self._pointer = pointer
 
     def find(self, query: Query) -> UiaElement:
         control = auto.Control(
@@ -101,7 +136,7 @@ class UiaLocator:
         )
         if not control.Exists(maxSearchSeconds=_LOOK_ONCE):
             raise ElementNotFound(self._nothing_matched())
-        return UiaElement(control, self._window)
+        return UiaElement(control, self._window, pointer=self._pointer)
 
     def _nothing_matched(self) -> str:
         # LocatorChain prefixes this with the locator's own class name, so it
@@ -110,6 +145,31 @@ class UiaLocator:
             f"no match under window {self._window.Name!r} "
             f"(pid {self._window.ProcessId})"
         )
+
+
+class ProviderTrust(Protocol):
+    """Whether a control's provider really does what its patterns advertise."""
+
+    def acts_for_real(self, control: object) -> bool: ...
+
+
+class RealProvidersOnly:
+    """The generic MSAA proxy synthesises Invoke from a posted BM_CLICK.
+
+    Against an owner-drawn Tk button that is a message into the void: no
+    exception, no click, and a test that passes having done nothing. Measured
+    against a real click counter, `InvokePattern.Invoke()` and
+    `LegacyIAccessible.DoDefaultAction()` both return cleanly and fire nothing.
+    """
+
+    def acts_for_real(self, control: object) -> bool:
+        if _THE_GENERIC_PROXY not in _how_the_provider_describes_itself(control):
+            return True
+        return _the_framework_behind(control) in _FRAMEWORKS_THAT_ANSWER_FOR_THEMSELVES
+
+
+TRUSTED_PROVIDERS: ProviderTrust = RealProvidersOnly()
+"""The rule every element applies unless a spec hands it a double instead."""
 
 
 class UiaElement:
@@ -121,10 +181,12 @@ class UiaElement:
         window: auto.Control,
         *,
         pointer: PointerInput = WINDOWS_POINTER,
+        trust: ProviderTrust = TRUSTED_PROVIDERS,
     ) -> None:
         self._control = control
         self._window = window
         self._pointer = pointer
+        self._trust = trust
 
     def click(self) -> None:
         if self._invoked_through_the_pattern():
@@ -134,11 +196,18 @@ class UiaElement:
     def type_text(self, text: str) -> None:
         if self._set_through_the_value_pattern(text):
             return
-        self._type_with_the_keyboard(text)
+        if self._trusts_its_provider():
+            self._type_into_the_control_the_tree_can_focus(text)
+            return
+        self._type_where_clicking_puts_the_caret(text)
 
     def read_text(self) -> str:
+        # Deliberately ungated by provider trust. An untrusted provider can be
+        # read but not driven: a property served out of an annotation store is
+        # the application's own word for itself, and only the *actions* are
+        # guesses about a control the proxy cannot really reach.
         if self._holds_editable_text():
-            return self._control.GetPattern(auto.PatternId.ValuePattern).Value
+            return self._whatever_the_value_pattern_holds()
         return self._control.Name
 
     def is_visible(self) -> bool:
@@ -152,20 +221,48 @@ class UiaElement:
         # lives in its value instead.
         return self._control.ControlType == auto.ControlType.EditControl
 
+    def _whatever_the_value_pattern_holds(self) -> str:
+        pattern = self._control.GetPattern(auto.PatternId.ValuePattern)
+        if pattern is None:
+            # `GetPattern` answers None rather than raising, so an edit control
+            # whose provider never offered one escaped as a bare AttributeError
+            # — which is not an ElementNotFound, so poll() never retried it and
+            # the driver never caught it.
+            return self._control.Name
+        # An empty value is an answer, and it is kept. An annotated Tk entry
+        # nobody has typed into really is empty, and reporting its label's name
+        # instead would be a confident account of text that is not there.
+        return pattern.Value
+
     def _invoked_through_the_pattern(self) -> bool:
         """Invoking needs no focus and steals none, so it is always tried first."""
+        if not self._trusts_its_provider():
+            return False
         pattern = self._control.GetPattern(auto.PatternId.InvokePattern)
         return pattern is not None and _accepted(pattern.Invoke)
 
+    def _trusts_its_provider(self) -> bool:
+        return self._trust.acts_for_real(self._control)
+
     def _set_through_the_value_pattern(self, text: str) -> bool:
         """Setting the value needs no focus, and it cannot mistype."""
+        if not self._trusts_its_provider():
+            return False
         pattern = self._control.GetPattern(auto.PatternId.ValuePattern)
         return pattern is not None and _accepted(lambda: pattern.SetValue(text))
 
-    def _type_with_the_keyboard(self, text: str) -> None:
+    def _type_into_the_control_the_tree_can_focus(self, text: str) -> None:
         # Keystrokes land wherever the caret is, so the window has to be in
         # front first; SendKeys focuses the control itself.
         self._window.SetActive()
+        self._control.SendKeys(text, charMode=True)
+
+    def _type_where_clicking_puts_the_caret(self, text: str) -> None:
+        # A Tk widget owns focus within its toplevel through Tk's own model, so
+        # Win32 focus on its child HWND is not Tk focus, and asking the tree for
+        # it hands the caret to nobody. Clicking is what is left — which is
+        # exactly what OcrElement does, for exactly the same reason.
+        self._click_with_the_mouse()
         self._control.SendKeys(text, charMode=True)
 
     def _click_with_the_mouse(self) -> None:
@@ -177,6 +274,17 @@ class UiaElement:
         # foreground thief as an OCR-located click, and has to say so.
         middle = self._control.BoundingRectangle
         self._pointer.click(middle.xcenter(), middle.ycenter())
+
+
+def _how_the_provider_describes_itself(control: object) -> str:
+    # Asked with getattr rather than read: absence of evidence of proxying is
+    # trust, which is what keeps every control that answers no such question at
+    # all — and every test double — on the fast path.
+    return str(getattr(control, "ProviderDescription", ""))
+
+
+def _the_framework_behind(control: object) -> str:
+    return str(getattr(control, "FrameworkId", ""))
 
 
 def _accepted(request: Callable[[], object]) -> bool:

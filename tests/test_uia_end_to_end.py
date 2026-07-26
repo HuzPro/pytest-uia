@@ -130,6 +130,45 @@ def test_typing_into_a_textbox_through_the_value_pattern_sets_its_text(
     )
 
 
+class RecordingPointer:
+    """Test double: a mouse that remembers being reached for, and never is."""
+
+    def __init__(self) -> None:
+        self.clicks: list[tuple[int, int]] = []
+
+    def click(self, x: int, y: int) -> None:
+        self.clicks.append((x, y))
+
+
+def test_the_winforms_button_is_still_invoked_through_its_pattern_rather_than_clicked(
+    winforms_app: App,
+) -> None:
+    # Given the fixture app's button, with a mouse nobody should need
+    pointer = RecordingPointer()
+    locator = UiaLocator(resolve_main_window(winforms_app.pid), pointer=pointer)
+
+    # When it is clicked
+    locator.find(NEW_TASK_BUTTON).click()
+
+    # Then the app reacted
+    status = poll(
+        lambda: locator.find(TASK_CREATED_LABEL),
+        _REACTION_POLICY,
+        retry_on=ElementNotFound,
+    )
+    assert status.read_text() == "task created", (
+        "the click never reached the button's own handler"
+    )
+    # and it reacted to the pattern, not to a pointer. WinForms is served by
+    # the same generic MSAA proxy Tk is, so this is the one spec that fails if
+    # provider detection ever mistakes a framework that honours Invoke for one
+    # that only pretends to — a misfire that costs nothing but correctness,
+    # since the mouse works too, right up until the desktop refuses it.
+    assert pointer.clicks == [], (
+        f"the mouse was used on a control that can be invoked: {pointer.clicks}"
+    )
+
+
 def test_the_desktop_adapter_finds_a_launched_apps_window_and_searches_inside_it(
     winforms_app: App,
 ) -> None:

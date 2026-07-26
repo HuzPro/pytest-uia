@@ -85,6 +85,20 @@ def windows_ocr_is_installed() -> bool:
         return False
 
 
+def tk_uia_is_installed() -> bool:
+    """Whether the Tk fixture app's accessibility library is present.
+
+    Same shape and same rationale as the check above. Without it a missing
+    `tk_uia` kills the fixture app during its own imports, and the spec that
+    wanted it reports a thirty-second "no visible top-level window" timeout —
+    a failure that says nothing at all about what is actually missing.
+    """
+    try:
+        return find_spec("tk_uia") is not None
+    except ModuleNotFoundError:
+        return False
+
+
 @contextmanager
 def skipped_when_windows_refuses_synthetic_input() -> Iterator[None]:
     """Treat a desktop that will not accept a click as an unrunnable environment.
