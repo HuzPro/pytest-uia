@@ -17,6 +17,7 @@ from pytest_uia.application.driver import App
 from pytest_uia.domain.errors import ElementNotFound
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.waiting import RetryPolicy, poll
+from tests.conftest import tk_uia_is_installed
 
 pytestmark = [
     pytest.mark.gui,
@@ -187,6 +188,15 @@ def test_the_desktop_adapter_finds_a_launched_apps_window_and_searches_inside_it
     )
 
 
+@pytest.mark.skipif(
+    not tk_uia_is_installed(),
+    # The only spec in this module that reaches for the Tk fixture app, which
+    # annotates itself with `tk_uia` and exits if it cannot. Without the guard a
+    # missing dev dependency kills the app during its own imports and surfaces
+    # here as a thirty-second "no visible top-level window" — a failure that
+    # says nothing whatever about what is actually absent.
+    reason="install tk-uia: the Tk fixture app annotates itself with it",
+)
 def test_a_window_belonging_to_a_child_of_the_launched_process_is_still_found(
     tk_app: App,
 ) -> None:

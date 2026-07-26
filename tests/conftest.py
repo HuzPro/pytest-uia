@@ -2,10 +2,15 @@
 
 The `gui` fixture a user gets comes from the installed plugin
 (:mod:`pytest_uia.hooks`) and is deliberately not redefined here. What this
-adds is the two fixture apps, each launched through the same session the plugin
-hands out, so the specs below exercise the shipped wiring rather than a copy of
-it. The pair is the point: one window exposes a full accessibility tree and one
-exposes nothing usable, and the same journey has to run against both.
+adds is the three fixture apps, each launched through the same session the
+plugin hands out, so the specs below exercise the shipped wiring rather than a
+copy of it.
+
+The set is the point. WinForms exposes a full accessibility tree and always
+did; Tk exposes one because `tk_uia` annotates it; the canvas window exposes
+nothing at all, and is the only one left that the pixel path has to carry. The
+same journey has to run against all three, and it has to be visible which of
+them was answered out of the tree.
 """
 
 from __future__ import annotations
@@ -66,8 +71,13 @@ def winforms_command() -> list[str]:
 
 
 def tk_command() -> list[str]:
-    """How the thin-accessibility-tree fixture app is started."""
+    """How the annotated-Tk fixture app is started."""
     return [_INTERPRETER, str(FIXTURE_APPS / "tk_app.py")]
+
+
+def tk_canvas_command() -> list[str]:
+    """How the fixture app with no accessibility tree at all is started."""
+    return [_INTERPRETER, str(FIXTURE_APPS / "tk_canvas_app.py")]
 
 
 def windows_ocr_is_installed() -> bool:
@@ -128,6 +138,11 @@ def winforms_app() -> Iterator[App]:
 @pytest.fixture
 def tk_app() -> Iterator[App]:
     yield from _app_launched_by_its_own_session(tk_command())
+
+
+@pytest.fixture
+def tk_canvas_app() -> Iterator[App]:
+    yield from _app_launched_by_its_own_session(tk_canvas_command())
 
 
 def _app_launched_by_its_own_session(command: Sequence[str]) -> Iterator[App]:

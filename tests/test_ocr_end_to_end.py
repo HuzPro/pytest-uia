@@ -1,8 +1,14 @@
 """Behavioral spec for reading a window that has nothing to read in its tree.
 
-Every spec here drives the OCR locator directly, never through the chain, so
-what is proven is that the pixels really were recognised — not that some other
-link answered first.
+The window is the canvas fixture, whose entire interface is painted with
+`create_text` and reaches the accessibility tree as one anonymous pane with no
+children. Its accessible sibling was driving these specs until `tk_uia` gave
+Tk widgets names, at which point every sentence here was about a window that
+had an accessibility tree after all.
+
+Every spec drives the OCR locator directly, never through the chain, so what is
+proven is that the pixels really were recognised — not that some other link
+answered first.
 """
 
 from __future__ import annotations
@@ -44,8 +50,8 @@ _REACTION_POLICY = RetryPolicy(timeout=10.0, interval=0.5)
 
 
 @pytest.fixture
-def tk_text(tk_app: App) -> Locator:
-    """An OCR locator over the Tk fixture window, and nothing else in the chain.
+def tk_text(tk_canvas_app: App) -> Locator:
+    """An OCR locator over the canvas fixture window, and nothing else.
 
     The adapter is imported here rather than at module scope because a missing
     `ocr` extra has to skip these specs, and an import at module scope would
@@ -54,13 +60,38 @@ def tk_text(tk_app: App) -> Locator:
     from pytest_uia.adapters.ocr import OcrLocator
     from pytest_uia.adapters.uia import resolve_main_window
 
-    return OcrLocator(resolve_main_window(tk_app.pid))
+    return OcrLocator(resolve_main_window(tk_canvas_app.pid))
+
+
+def test_the_canvas_window_exposes_nothing_a_name_based_query_could_reach(
+    tk_canvas_app: App,
+) -> None:
+    """The precondition every spec below silently depends on, asserted aloud.
+
+    Travels with them under the same skips: it is worth nothing on its own, and
+    the moment they cannot run there is nothing left for it to guard.
+    """
+    # The UIA adapter is imported here rather than at module scope for the same
+    # reason the OCR one is: this module is collected on every platform, and
+    # only the specs named after that adapter are shielded from it.
+    from pytest_uia.adapters.uia import UiaLocator, resolve_main_window
+
+    # Given the accessibility tree's own view of the window these specs read
+    tree = UiaLocator(resolve_main_window(tk_canvas_app.pid))
+
+    # When the tree is asked for the control every other fixture answers for
+    # Then it has nothing to answer with. Without this, a well-meaning edit
+    # that made this window accessible would leave the specs below passing
+    # against a chain that never reaches the pixels at all — the same vacuity
+    # they were re-pointed here to escape, one layer down.
+    with pytest.raises(ElementNotFound):
+        tree.find(NEW_TASK_BUTTON)
 
 
 def test_ocr_finds_text_painted_on_a_window_with_no_accessibility_tree(
     tk_text: Locator,
 ) -> None:
-    # When a phrase the Tk app paints, and never names, is looked for
+    # When a phrase the canvas app paints, and never names, is looked for
     found = tk_text.find(NEW_TASK_BUTTON)
 
     # Then it comes back as an element that reads as the phrase on screen
@@ -72,7 +103,7 @@ def test_ocr_finds_text_painted_on_a_window_with_no_accessibility_tree(
 def test_ocr_reports_a_bare_reason_when_the_phrase_is_not_painted_anywhere(
     tk_text: Locator,
 ) -> None:
-    # When a phrase the Tk app paints nowhere is looked for
+    # When a phrase the canvas app paints nowhere is looked for
     with pytest.raises(ElementNotFound) as miss:
         tk_text.find(UNPAINTED_BUTTON)
 
@@ -83,10 +114,10 @@ def test_ocr_reports_a_bare_reason_when_the_phrase_is_not_painted_anywhere(
     )
 
 
-def test_clicking_text_found_by_ocr_presses_the_underlying_tk_button(
+def test_clicking_text_found_by_ocr_reaches_the_handler_behind_those_pixels(
     tk_text: Locator,
 ) -> None:
-    # Given a button located by nothing but the caption painted on it
+    # Given a button that is nothing but a caption and an outline someone drew
     button = tk_text.find(NEW_TASK_BUTTON)
 
     # When it is clicked where those pixels were read — retried while the
@@ -103,5 +134,5 @@ def test_clicking_text_found_by_ocr_presses_the_underlying_tk_button(
     )
 
     assert status.read_text() == "task created", (
-        "the click landed somewhere other than on the button it read"
+        "the click landed somewhere other than on the shape it read"
     )
