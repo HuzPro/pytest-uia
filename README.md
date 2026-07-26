@@ -31,7 +31,7 @@ that list; it is not any more, and
 | Native Win32/WinForms/WPF/Electron desktop app, and you want acceptance tests that read like the acceptance criteria | **pytest-uia.** |
 | Your app has **empty** input boxes to find, or dark mode, or per-monitor DPI | **pytest-uia.** "Find the empty textbox labelled *Title*" is a query here, and a computer-vision problem everywhere else. |
 | You control the app under test and can add accessible names | **pytest-uia.** The act that makes it testable is the act that makes it work with screen readers. |
-| A Tkinter app **you own** | **pytest-uia**, plus [`tk-uia`](../tk-uia) inside the app itself. One call there gives every widget a name and a role, and every query here is then an ordinary UIA query — full accessibility tree, no OCR. Read [The Tkinter case](#the-tkinter-case-stated-precisely) for what it does and does not buy. |
+| A Tkinter app **you own** | **pytest-uia**, plus [`tk-uia`](https://github.com/HuzPro/tk-uia) inside the app itself. One call there gives every widget a name and a role, and every query here is then an ordinary UIA query — full accessibility tree, no OCR. Read [The Tkinter case](#the-tkinter-case-stated-precisely) for what it does and does not buy. |
 | A Tkinter app you **cannot modify** | **pytest-uia**, with the OCR fallback. Annotation is in-process only, so somebody else's Tk app is the case the pixel path still exists for — with all of the caveats below. |
 
 ## Quickstart
@@ -219,8 +219,8 @@ search is written, because the button has no name and the label has the wrong ro
 widgets are, and Windows will carry it: MSAA lets a process annotate the accessible
 properties of its own windows through `IAccPropServices`, and UI Automation reads those
 annotations back out through a proxy that takes priority over the plain one.
-[`tk-uia`](../tk-uia) — a sibling project in this workspace, MIT, zero runtime
-dependencies — is one call:
+[`tk-uia`](https://github.com/HuzPro/tk-uia) — a sibling project, MIT, zero runtime
+dependencies, not on PyPI — is one call:
 
 ```python
 import tk_uia

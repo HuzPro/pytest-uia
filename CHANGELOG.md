@@ -153,7 +153,7 @@ way, a click that could succeed without pressing anything is fixed.
   windows through `IAccPropServices`, and UI Automation reads those annotations
   back out through a proxy that outranks the plain one — so an application can
   say who its widgets are. That work is its own project,
-  [`tk-uia`](../tk-uia) (MIT, zero runtime dependencies, not published), because
+  [`tk-uia`](https://github.com/HuzPro/tk-uia) (MIT, zero runtime dependencies, not published), because
   "a library that makes Tkinter apps work with screen readers" and "a pytest
   plugin that drives Windows GUIs" are each one clean sentence and explain each
   other badly when welded together. Read back through UIA from a separate
