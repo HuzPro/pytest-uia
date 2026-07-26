@@ -12,11 +12,14 @@ import sys
 import pytest
 
 from pytest_uia.application.driver import App
-from pytest_uia.domain.errors import ElementNotFound
+from pytest_uia.domain.errors import ElementNotFound, InputRefused
 from pytest_uia.domain.locator import Locator
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.waiting import RetryPolicy, poll
-from tests.conftest import windows_ocr_is_installed
+from tests.conftest import (
+    skipped_when_windows_refuses_synthetic_input,
+    windows_ocr_is_installed,
+)
 
 pytestmark = [
     pytest.mark.gui,
@@ -86,8 +89,11 @@ def test_clicking_text_found_by_ocr_presses_the_underlying_tk_button(
     # Given a button located by nothing but the caption painted on it
     button = tk_text.find(NEW_TASK_BUTTON)
 
-    # When it is clicked where those pixels were read
-    button.click()
+    # When it is clicked where those pixels were read — retried while the
+    # desktop refuses the pointer, because the adapter is one-shot by contract
+    # and waiting is always the caller's job here
+    with skipped_when_windows_refuses_synthetic_input():
+        poll(button.click, _REACTION_POLICY, retry_on=InputRefused)
 
     # Then the application acted on it, and repainted its status line to say so
     status = poll(

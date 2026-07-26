@@ -13,3 +13,12 @@ class ElementNotFound(Exception):
 
 class WindowNotFound(Exception):
     """A launched application owns no visible top-level window (yet)."""
+
+
+class InputRefused(Exception):
+    """Windows dropped the synthetic input this process injected.
+
+    Not a missing element: everything the test looked for was found, and the
+    desktop simply would not let it be touched. Reporting it as the former
+    sends whoever reads the failure looking for a control that is right there.
+    """

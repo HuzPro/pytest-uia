@@ -14,7 +14,12 @@ from collections.abc import Callable
 import pytest
 
 from pytest_uia.application.session import GuiSession
-from tests.conftest import tk_command, windows_ocr_is_installed, winforms_command
+from tests.conftest import (
+    skipped_when_windows_refuses_synthetic_input,
+    tk_command,
+    windows_ocr_is_installed,
+    winforms_command,
+)
 
 pytestmark = [
     pytest.mark.gui,
@@ -42,7 +47,11 @@ def test_the_same_journey_drives_winforms_via_uia_and_tkinter_via_ocr(
 ) -> None:
     app = gui.launch(launch_command())
 
-    app.button("New Task").click()
+    # The driver already retries a refused click for the whole implicit wait.
+    # Only a desktop that refuses for all of it reaches here, and that is a
+    # machine that cannot run this spec rather than a product that is broken.
+    with skipped_when_windows_refuses_synthetic_input():
+        app.button("New Task").click()
 
     assert app.text("task created").exists(), (
         "the journey that passes against a window with an accessibility tree "

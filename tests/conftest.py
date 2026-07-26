@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
 
 from pytest_uia.application.driver import App
+from pytest_uia.domain.errors import InputRefused
 
 FIXTURE_APPS = Path(__file__).parent / "fixture_apps"
 
@@ -71,6 +73,27 @@ def windows_ocr_is_installed() -> bool:
         # find_spec imports each parent package on the way down, so a missing
         # extra raises out of it rather than answering None.
         return False
+
+
+@contextmanager
+def skipped_when_windows_refuses_synthetic_input() -> Iterator[None]:
+    """Treat a desktop that will not accept a click as an unrunnable environment.
+
+    The same category as a missing `ocr` extra, and for the same reason: the
+    specs it guards need something this machine is not currently offering.
+    While a window owned by a higher-integrity process holds the foreground,
+    User Interface Privilege Isolation drops every event this process injects,
+    and no amount of retrying inside the driver changes that.
+
+    Deliberately narrow. It catches only `InputRefused`, which is raised on
+    Windows' own answer that the event was never delivered — never on a click
+    that landed and did nothing, which stays a failure. And it wraps only the
+    interaction: everything the specs actually assert about still runs.
+    """
+    try:
+        yield
+    except InputRefused as refusal:
+        pytest.skip(f"Windows is refusing synthetic mouse input — {refusal}")
 
 
 @pytest.fixture

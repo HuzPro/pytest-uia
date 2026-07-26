@@ -11,14 +11,23 @@ import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import replace
-from typing import Protocol
+from typing import Protocol, TypeVar
 
-from pytest_uia.domain.errors import ElementNotFound
+from pytest_uia.domain.errors import ElementNotFound, InputRefused
 from pytest_uia.domain.locator import Element, Locator
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.waiting import RetryPolicy, poll
 
 DEFAULT_POLICY = RetryPolicy()
+
+T = TypeVar("T")
+
+# Both mean "the screen is not ready yet", and both clear on their own. A
+# control that has not painted is the obvious one; a desktop that is dropping
+# this process's synthetic input because a higher-integrity window holds the
+# foreground is the one that used to make gui suites flaky, because it looked
+# exactly like a click the application had ignored.
+_WORTH_ANOTHER_ATTEMPT = (ElementNotFound, InputRefused)
 
 
 def waiting_at_most(policy: RetryPolicy, timeout: float | None) -> RetryPolicy:
@@ -61,10 +70,13 @@ class UIElement:
         self._sleep = sleep
 
     def click(self) -> None:
-        self._resolve().click()
+        # Resolving and clicking share one deadline rather than nesting two:
+        # the element is looked up again on every attempt, so a refused click
+        # costs a fresh lookup and never twice the configured wait.
+        self._within_the_implicit_wait(lambda: self._one_that_matches().click())
 
     def type_text(self, text: str) -> None:
-        self._resolve().type_text(text)
+        self._within_the_implicit_wait(lambda: self._one_that_matches().type_text(text))
 
     def read_text(self) -> str:
         return self._resolve().read_text()
@@ -78,7 +90,7 @@ class UIElement:
         return True
 
     def wait_visible(self, *, timeout: float | None = None) -> UIElement:
-        self._keep_looking_for(self._one_that_is_painted, timeout)
+        self._within_the_implicit_wait(self._one_that_is_painted, timeout)
         return self
 
     def _one_that_is_painted(self) -> Element:
@@ -91,21 +103,29 @@ class UIElement:
         return element
 
     def _resolve(self, timeout: float | None = None) -> Element:
-        return self._keep_looking_for(self._one_that_matches, timeout)
+        return self._within_the_implicit_wait(self._one_that_matches, timeout)
 
     def _one_that_matches(self) -> Element:
         return self._locator.find(self._query)
 
-    def _keep_looking_for(
-        self, look: Callable[[], Element], timeout: float | None
-    ) -> Element:
-        return poll(
-            look,
-            waiting_at_most(self._policy, timeout),
-            retry_on=ElementNotFound,
-            clock=self._clock,
-            sleep=self._sleep,
-        )
+    def _within_the_implicit_wait(
+        self, attempt: Callable[[], T], timeout: float | None = None
+    ) -> T:
+        policy = waiting_at_most(self._policy, timeout)
+        try:
+            return poll(
+                attempt,
+                policy,
+                retry_on=_WORTH_ANOTHER_ATTEMPT,
+                clock=self._clock,
+                sleep=self._sleep,
+            )
+        except InputRefused as refusal:
+            # The adapter knows who is in the way; only this knows how long the
+            # test was willing to wait for them, and both belong in the report.
+            raise InputRefused(
+                f"synthetic mouse input was refused for {policy.timeout}s; {refusal}"
+            ) from refusal
 
 
 class Window(Protocol):

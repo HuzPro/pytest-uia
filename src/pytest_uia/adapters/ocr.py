@@ -40,6 +40,7 @@ from pytest_uia.adapters.capture import (
     ScreenCapture,
     ScreenRegion,
 )
+from pytest_uia.adapters.input import WINDOWS_POINTER, PointerInput
 from pytest_uia.domain.errors import ElementNotFound
 from pytest_uia.domain.query import Query
 from pytest_uia.domain.text_match import Box, Word, find_phrase
@@ -95,10 +96,12 @@ class OcrLocator:
         *,
         reader: TextReader = _READER,
         capture: ScreenCapture = _CAPTURE,
+        pointer: PointerInput = WINDOWS_POINTER,
     ) -> None:
         self._window = window
         self._reader = reader
         self._capture = capture
+        self._pointer = pointer
 
     def find(self, query: Query) -> OcrElement:
         region = self._region_of_the_window_in_front()
@@ -106,7 +109,12 @@ class OcrLocator:
         box = find_phrase(words, query.name)
         if box is None:
             raise ElementNotFound(_NOT_VISIBLE)
-        return OcrElement(query.name, _screen_point_of(box, region), self._window)
+        return OcrElement(
+            query.name,
+            _screen_point_of(box, region),
+            self._window,
+            pointer=self._pointer,
+        )
 
     def _region_of_the_window_in_front(self) -> ScreenRegion:
         # Nothing may overlap the window: a screen grab photographs whatever is
@@ -131,16 +139,26 @@ class OcrElement:
     keyboard, because there is no accessibility pattern to ask instead.
     """
 
-    def __init__(self, phrase: str, point: ClickPoint, window: auto.Control) -> None:
+    def __init__(
+        self,
+        phrase: str,
+        point: ClickPoint,
+        window: auto.Control,
+        *,
+        pointer: PointerInput = WINDOWS_POINTER,
+    ) -> None:
         self._phrase = phrase
         self._point = point
         self._window = window
+        self._pointer = pointer
 
     def click(self) -> None:
         # The pointer hits whatever is on top, so the window has to be in front
         # before a point measured inside it means anything.
         self._window.SetActive()
-        auto.Click(self._point.x, self._point.y)
+        # Not `uiautomation.Click`, which discards Windows' answer: a click the
+        # desktop refused has to be distinguishable from one the app ignored.
+        self._pointer.click(self._point.x, self._point.y)
 
     def type_text(self, text: str) -> None:
         # Clicking is the only way to focus something OCR found: there is no

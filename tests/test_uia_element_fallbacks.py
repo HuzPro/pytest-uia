@@ -14,9 +14,11 @@ from __future__ import annotations
 import sys
 
 import pytest
+import uiautomation as auto
 from comtypes import COMError
 
 from pytest_uia.adapters.uia import UiaElement
+from pytest_uia.domain.errors import InputRefused
 
 pytestmark = pytest.mark.skipif(
     sys.platform != "win32",
@@ -24,6 +26,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 _E_FAIL = -2147467259
+
+# A control 100x40 at (10, 20), so its centre is somewhere no arithmetic slip
+# could reach by accident.
+_CONTROL_RECTANGLE = auto.Rect(10, 20, 110, 60)
+_ITS_CENTRE = (60, 40)
 
 
 def _provider_refuses() -> COMError:
@@ -37,17 +44,19 @@ def _provider_refuses() -> COMError:
 
 
 class PatternlessControl:
-    """Test double: a control whose provider supports no pattern at all."""
+    """Test double: a control whose provider supports no pattern at all.
+
+    Offers no `Click` on purpose. `uiautomation`'s own click throws away
+    Windows' answer about whether the event was delivered, so an adapter that
+    still reached for it would fail this file rather than a gui run.
+    """
 
     def __init__(self) -> None:
-        self.clicks: list[bool] = []
         self.typed: list[tuple[str, bool]] = []
+        self.BoundingRectangle = _CONTROL_RECTANGLE
 
     def GetPattern(self, patternId: int) -> None:
         return None
-
-    def Click(self, simulateMove: bool = True) -> None:
-        self.clicks.append(simulateMove)
 
     def SendKeys(self, text: str, charMode: bool = True) -> None:
         self.typed.append((text, charMode))
@@ -83,11 +92,29 @@ class RecordingWindow:
         self.activations += 1
 
 
+class RecordingPointer:
+    """Test double: a mouse that remembers where it was aimed."""
+
+    def __init__(self) -> None:
+        self.clicks: list[tuple[int, int]] = []
+
+    def click(self, x: int, y: int) -> None:
+        self.clicks.append((x, y))
+
+
+class RefusedPointer:
+    """Test double: the mouse of a desktop dropping this process's input."""
+
+    def click(self, x: int, y: int) -> None:
+        raise InputRefused("the foreground is held by 'GameInputServiceWindow'")
+
+
 def test_clicking_a_control_with_no_invoke_pattern_falls_back_to_the_mouse() -> None:
     # Given a control that exposes no pattern, in a window that is not in front
     control = PatternlessControl()
     window = RecordingWindow()
-    element = UiaElement(control, window)
+    pointer = RecordingPointer()
+    element = UiaElement(control, window, pointer=pointer)
 
     # When the test clicks it
     element.click()
@@ -96,8 +123,8 @@ def test_clicking_a_control_with_no_invoke_pattern_falls_back_to_the_mouse() -> 
     assert window.activations == 1, (
         "a mouse click on a background window hits whatever is covering it"
     )
-    assert control.clicks == [False], (
-        "the pointer should jump to the control, not slide across other windows"
+    assert pointer.clicks == [_ITS_CENTRE], (
+        "the pointer should jump to the middle of the control, not slide there"
     )
 
 
@@ -106,16 +133,30 @@ def test_clicking_a_control_whose_invoke_pattern_fails_falls_back_to_the_mouse()
 ):
     # Given a control that advertises Invoke but whose provider refuses the call
     control = FailingInvokeControl()
-    window = RecordingWindow()
-    element = UiaElement(control, window)
+    pointer = RecordingPointer()
+    element = UiaElement(control, RecordingWindow(), pointer=pointer)
 
     # When the test clicks it
     element.click()
 
     # Then the refusal is absorbed and the click still happens
-    assert control.clicks == [False], (
+    assert pointer.clicks == [_ITS_CENTRE], (
         "a provider that fails Invoke should not fail the test's click"
     )
+
+
+def test_a_mouse_fallback_the_desktop_refuses_is_reported_not_swallowed() -> None:
+    # Given a control with no pattern, on a desktop refusing synthetic input
+    element = UiaElement(
+        PatternlessControl(), RecordingWindow(), pointer=RefusedPointer()
+    )
+
+    # When the test clicks it
+    with pytest.raises(InputRefused):
+        element.click()
+
+    # Then the caller can retry, exactly as it does for an OCR-located click:
+    # the accessibility tree protects Invoke, not the mouse behind it
 
 
 def test_typing_into_a_control_with_no_value_pattern_falls_back_to_the_keyboard() -> (

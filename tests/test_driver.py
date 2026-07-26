@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from pytest_uia.application.driver import App, UIElement
-from pytest_uia.domain.errors import ElementNotFound
+from pytest_uia.domain.errors import ElementNotFound, InputRefused
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.waiting import RetryPolicy
 
@@ -20,6 +20,13 @@ TITLE_TEXTBOX = Query(role=Role.TEXTBOX, name="Title")
 TASK_CREATED_LABEL = Query(role=Role.TEXT, name="task created")
 
 _DEFAULT_WAIT = RetryPolicy()
+
+# What the pointer adapter raises: a bare reason the driver has to carry
+# through, because it is the only thing that names the culprit.
+_WHY_THE_DESKTOP_REFUSED = (
+    "the foreground is held by 'GameInputServiceWindow' (pid 6680)"
+)
+_NEVER = 10_000
 
 
 class RecordingControl:
@@ -47,6 +54,34 @@ class UnpaintedControl(RecordingControl):
 
     def is_visible(self) -> bool:
         return False
+
+
+class ControlTheDesktopRefusesInputFor(RecordingControl):
+    """Test double: a control Windows will not let this process touch yet.
+
+    The refusal belongs to the desktop rather than to the control — while a
+    higher-integrity window holds the foreground, nothing this process injects
+    reaches anything — but it surfaces at exactly this seam.
+    """
+
+    def __init__(self, accepted_from_attempt: int) -> None:
+        super().__init__()
+        self.attempts = 0
+        self._accepted_from_attempt = accepted_from_attempt
+
+    def click(self) -> None:
+        if self._refused():
+            raise InputRefused(_WHY_THE_DESKTOP_REFUSED)
+        super().click()
+
+    def type_text(self, text: str) -> None:
+        if self._refused():
+            raise InputRefused(_WHY_THE_DESKTOP_REFUSED)
+        super().type_text(text)
+
+    def _refused(self) -> bool:
+        self.attempts += 1
+        return self.attempts < self._accepted_from_attempt
 
 
 class ChainThatFinds:
@@ -235,6 +270,85 @@ def test_element_resolution_retries_until_the_implicit_wait_expires_then_raises(
     # and the reason the chain gave survives, since that is all the test reports
     assert "nothing on screen matches" in str(miss.value), (
         f"the chain's own explanation was swallowed: {miss.value}"
+    )
+
+
+def test_a_click_the_desktop_refuses_is_tried_again_until_the_foreground_frees_up() -> (
+    None
+):
+    # Given a desktop dropping this process's input until its third attempt
+    control = ControlTheDesktopRefusesInputFor(accepted_from_attempt=3)
+    slept: list[float] = []
+    button = UIElement(
+        NEW_TASK_BUTTON,
+        ChainThatFinds(control),
+        RetryPolicy(timeout=5.0, interval=0.25),
+        clock=TickingClock(step=0.5),
+        sleep=slept.append,
+    )
+
+    # When the test clicks it
+    button.click()
+
+    # Then the click eventually landed: a foreground thief is transient, and
+    # failing on the first refusal makes every suite that meets one flaky
+    assert control.attempts == 3, (
+        f"a refused click must be retried inside the implicit wait, not once: "
+        f"{control.attempts} attempt(s)"
+    )
+    assert control.clicks == 1, "the click that Windows finally allowed was lost"
+    assert slept == [0.25, 0.25], (
+        f"retries should be spaced by the configured interval, not by {slept}"
+    )
+
+
+def test_a_click_refused_for_the_whole_wait_blames_the_desktop_not_the_element() -> (
+    None
+):
+    # Given a desktop that never lets this process's input through
+    control = ControlTheDesktopRefusesInputFor(accepted_from_attempt=_NEVER)
+    button = UIElement(
+        NEW_TASK_BUTTON,
+        ChainThatFinds(control),
+        RetryPolicy(timeout=2.0, interval=0.5),
+        clock=TickingClock(step=0.5),
+        sleep=lambda _seconds: None,
+    )
+
+    # When the test clicks it
+    with pytest.raises(InputRefused) as refusal:
+        button.click()
+
+    # Then the failure says how long it kept trying and who was in the way,
+    # instead of reporting a missing element that was on screen the whole time
+    reason = str(refusal.value)
+    assert "synthetic mouse input was refused for 2.0s" in reason, (
+        f"the reader has to be told this was the desktop refusing, and for how "
+        f"long: {reason}"
+    )
+    assert _WHY_THE_DESKTOP_REFUSED in reason, (
+        f"the adapter's own explanation was swallowed: {reason}"
+    )
+
+
+def test_typing_the_desktop_refuses_is_tried_again_inside_the_same_wait() -> None:
+    # Given a desktop dropping this process's input until its second attempt
+    control = ControlTheDesktopRefusesInputFor(accepted_from_attempt=2)
+    title = UIElement(
+        TITLE_TEXTBOX,
+        ChainThatFinds(control),
+        RetryPolicy(timeout=5.0, interval=0.0),
+        clock=TickingClock(step=0.5),
+        sleep=lambda _seconds: None,
+    )
+
+    # When the test types into it
+    title.type_text("Buy milk")
+
+    # Then the text arrived, because keystrokes are refused for the same reason
+    # clicks are, and the fix cannot be for clicks alone
+    assert control.typed == ["Buy milk"], (
+        "a refused keystroke silently loses the text the test meant to enter"
     )
 
 

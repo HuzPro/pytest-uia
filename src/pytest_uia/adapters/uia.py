@@ -27,6 +27,7 @@ from importlib.util import find_spec
 import uiautomation as auto
 from comtypes import COMError
 
+from pytest_uia.adapters.input import WINDOWS_POINTER, PointerInput
 from pytest_uia.domain.errors import ElementNotFound, WindowNotFound
 from pytest_uia.domain.locator import Locator, LocatorChain
 from pytest_uia.domain.query import Query, Role
@@ -104,9 +105,16 @@ class UiaLocator:
 class UiaElement:
     """Adapter presenting a single UIA control as the domain's Element."""
 
-    def __init__(self, control: auto.Control, window: auto.Control) -> None:
+    def __init__(
+        self,
+        control: auto.Control,
+        window: auto.Control,
+        *,
+        pointer: PointerInput = WINDOWS_POINTER,
+    ) -> None:
         self._control = control
         self._window = window
+        self._pointer = pointer
 
     def click(self) -> None:
         if self._invoked_through_the_pattern():
@@ -154,7 +162,11 @@ class UiaElement:
         # The pointer hits whatever is on top, so the window has to be in front
         # before the control's own coordinates mean anything.
         self._window.SetActive()
-        self._control.Click(simulateMove=False)
+        # Not `Control.Click`, which discards Windows' answer: once the
+        # accessibility tree has run out of patterns this is as exposed to a
+        # foreground thief as an OCR-located click, and has to say so.
+        middle = self._control.BoundingRectangle
+        self._pointer.click(middle.xcenter(), middle.ycenter())
 
 
 def _accepted(request: Callable[[], object]) -> bool:
