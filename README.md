@@ -121,6 +121,9 @@ is using. A launched one always is.
 | `dialog.wait_closed(timeout=None)` | Block until the application has taken the dialog off screen. |
 | `app.has_dialog(title, timeout=None)` | `True`/`False` instead of an exception, the way `element.exists()` is. |
 | `app.close()` / `app.pid` / `app.title` | End it, or ask about it. |
+| `app.dump()` / `dialog.dump()` | Every control in that window, each with the query that would find it. Returns a `Dump`: `str()` for the tree, `.queries` for the same list as data, `.with_window_chrome()` to unfold the title bar. Takes no input and steals no foreground. |
+| `app.dump(limits=DumpLimits(max_nodes=5000, budget=30.0))` | Raise the node cap or the wall-clock budget when the dump says it stopped early. |
+| `python -m pytest_uia --title "..."` | The same dump from a terminal, against a window already on screen — no test needed. `--all`, `--max-nodes`, `--budget`, `--attach-timeout`. |
 | `--uia-timeout SECONDS` | The implicit wait every lookup inherits. Default 5 s; any call can override it with `timeout=`. |
 
 Names are matched **exactly** in v1. Substring and regex matching are on the roadmap.
@@ -196,39 +199,143 @@ Every query here is a name and a role, so the first question anyone actually has
 *what is my control called?* The accessible name is often not the visible caption, and
 for a control nobody thought about it is often the empty string.
 
-Three ways to look, cheapest first.
+**`app.dump()` answers it in the tool you already have.** With the app on screen and no
+test written yet:
 
-**Dump the tree from Python.** `uiautomation` is already installed as a dependency of
-this plugin, so with the app on screen:
+```powershell
+python -m pytest_uia --title "pytest-uia WinForms Fixture"
+```
+
+```
+'pytest-uia WinForms Fixture' -- 10 controls: 3 addressable, 0 ambiguous, 1 unreachable, 5 chrome
+WindowControl 'pytest-uia WinForms Fixture'  the window this dump was taken of
+  TextControl 'ready'  id=4524358            app.text("ready")
+  EditControl 'Title'  id=14420026           app.textbox("Title")
+  ButtonControl 'New Task'  id=9963754       app.button("New Task")
+  TitleBarControl ''                         5 more controls folded: this window's own
+                                             chrome (System, Minimize, Maximize, Close).
+                                             They are queryable;
+                                             dump.with_window_chrome() lists them.
+
+queries this window authorises:
+  app.text("ready")
+  app.textbox("Title")
+  app.button("New Task")
+```
+
+**Each line carries the query that would find that control**, which is the point: this
+is not a picture of a tree, it is a list of lines to paste. Inside a test the same thing
+is one call:
 
 ```python
-import uiautomation as auto
-
-window = auto.Control(searchDepth=1, Name="pytest-uia WinForms Fixture")
-for control, depth in auto.WalkControl(window, includeTop=True):
-    print(f"{'  ' * depth}{control.ControlTypeName} {control.Name!r}")
+print(app.dump())            # needs `pytest -s`, or pytest captures it
+pytest.fail(f"no such control\n{app.dump()}")   # or attach it to the failure
 ```
 
-against this repo's WinForms fixture, that prints:
+`app.dump()` returns a `Dump`, whose `__str__` is that text and whose `.queries` is the
+same list as data, so a test can assert on it without parsing layout. `dialog.dump()` is
+the same call scoped to a child window.
+
+**It takes no input and steals no foreground.** The dump only reads properties: it never
+clicks, never types, never brings a window forward and never photographs the screen. So
+unlike everything on the pixel path, it keeps working while
+[Windows is refusing this process's synthetic input](#the-fallback-paths-depend-on-synthetic-mouse-input-and-that-can-be-refused)
+— which is exactly the situation in which you most want to know what your controls are
+called. It is also safe to point at an application somebody is using: `attach` never
+terminates what it attached to.
+
+### What the dump will not do
+
+**It never quietly leaves anything out.** A control no query can reach is printed with
+the reason instead of a query, rather than being skipped — a tidy tree that disagrees
+with the window on screen is worse than no tree. The same rule is why there is no depth
+limit (`uiautomation`'s `maxDepth` gives no signal that it pruned: measured, a browser
+window at depth 8 yields 1486 of its 5437 controls and says nothing about the other
+3951), why the folded window chrome is counted, named and reversible, and why the node
+cap and the time budget each announce themselves and name the call that lifts them:
 
 ```
-WindowControl 'pytest-uia WinForms Fixture'
-  TextControl 'ready'
-  EditControl 'Title'
-  ButtonControl 'New Task'
-  TitleBarControl ''
-    MenuBarControl 'System'
-      MenuItemControl 'System'
-    ButtonControl 'Minimize'
-    ButtonControl 'Maximize'
-    ButtonControl 'Close'
+'Some Big Window' -- 500 controls: 431 addressable, 12 ambiguous, 52 unreachable, 5 chrome
+  stopped after 500 controls and there are more: raise it with
+  app.dump(limits=DumpLimits(max_nodes=5000)).
 ```
 
-Read that as the three queries it authorises: `app.text("ready")`,
-`app.textbox("Title")`, `app.button("New Task")` — `TextControl` is `text`,
-`EditControl` is `textbox`, `ButtonControl` is `button`. A control printed with `''` for
-a name cannot be reached by any query at all, which is the finding rather than a
-formatting accident: see [the Tkinter case](#the-tkinter-case-stated-precisely).
+The four categories in that header plus the window itself always add up to the total; a
+spec asserts it, because a count that does not add up would mean the dump had walked
+something it never reported.
+
+**The budget bounds the walk, not a single call.** It is checked between controls, and
+that is all it can be: a provider stays inside one `GetFirstChildControl` for as long as
+it likes and nothing on this thread can interrupt it. Measured, the desktop's
+`Program Manager` window answers five controls in 4.1 seconds, all of it in one call —
+so a dump of a hostile window can still block past its budget. It cannot run away, and
+it does not lie about where it stopped.
+
+**A window whose application has exited** raises `WindowNotFound`, exactly as `app.title`
+does. A single control that stops answering part-way through is kept, marked
+`<unreadable>`, and the walk carries on — dropping it would be the silent omission this
+whole design refuses, and abandoning the dump would throw away every control that did
+answer.
+
+**`[mouse]` says what pytest-uia will do, not what your control supports.** A control
+marked with it is one this plugin will drive with the real pointer instead of through
+`Invoke`/`SetValue`, because the generic MSAA proxy speaks for it — see
+[how it finds things](#how-it-finds-things). It is not a claim that the control is
+broken: measured, every title-bar button is marked and its `Invoke` works perfectly.
+`[offscreen]` means the control is in the tree with no pixels, which is what
+`wait_visible()` exists for.
+
+**`id=` is shown but cannot be queried.** v1 searches by name and role only. Do not pin
+a test to an AutomationId: measured, WinForms derives it from the window handle and it
+is different on every launch (`198966 / 723224 / 919832` for the same control across
+three runs of the same app). It is worth showing because it is stable where an
+application sets it deliberately — WPF, or `tk_uia.set_automation_id` — and querying by
+it is [on the roadmap](ROADMAP.md).
+
+### The window that has nothing to find
+
+The canvas fixture is the other half of the argument, and the dump is just as useful
+about it:
+
+```
+'pytest-uia Canvas Fixture' -- 9 controls: 0 addressable, 0 ambiguous, 3 unreachable, 5 chrome
+WindowControl 'pytest-uia Canvas Fixture'  the window this dump was taken of
+  PaneControl ''                           no query: PaneControl is not a role this plugin asks for
+    PaneControl ''                         no query: nothing inside it, so what it shows is paint
+  TitleBarControl ''                       5 more controls folded: this window's own
+                                           chrome (System, Minimize, Maximize, Close).
+                                           They are queryable; dump.with_window_chrome()
+                                           lists them.
+
+queries this window authorises:
+  (none: nothing in this window carries a name a query can match. If it draws its own
+  controls, the pixel fallback is what is left -- see the README's OCR section. If it is
+  a Tk app you own, one tk_uia.enable(root) names them.)
+```
+
+That is the finding, not a failure of the tool: an empty pane is a surface whose
+contents are pixels, and no name-based query will ever reach into it. See
+[the Tkinter case](#the-tkinter-case-stated-precisely).
+
+### The dialog collision, shown rather than described
+
+With the Tk fixture's `Settings` dialog open, both windows carry a button named
+`Confirm`, and the dump says so:
+
+```
+  WindowControl 'Settings'             app.dialog("Settings")
+    ...
+      ButtonControl 'Confirm'          app.dialog("Settings").button("Confirm")  [mouse]
+      EditControl 'Folder'             app.dialog("Settings").textbox("Folder")  [mouse]
+  ...
+    ButtonControl 'Confirm'            ambiguous: 2 controls answer app.button("Confirm")  [mouse]
+```
+
+The unscoped call reaches both — a search runs over the main window's whole subtree, and
+the dialog is inside it — and the scoped one reaches exactly one. That is
+[driving a dialog](#driving-a-dialog) demonstrated on your own application.
+
+### When you need more than this
 
 **Accessibility Insights for Windows** ([accessibilityinsights.io](https://accessibilityinsights.io/))
 is Microsoft's free inspector, and the one to reach for when the tree is big: hover any
@@ -239,8 +346,13 @@ control and it shows the name, the control type and the patterns, live.
 older tool and it is fussier, but it is already on any machine with the SDK installed
 and it shows the raw UIA property set, which is occasionally what you need.
 
-A tree dump built into the driver — one call on `App`, no separate tool — is
-[on the roadmap](ROADMAP.md) for 0.5.0.
+Everything above is the **client-side** view: what Windows will tell a separate process
+about your window. [`tk-uia`](https://github.com/HuzPro/tk-uia) has a sibling dump that
+answers the other half — what a Tk application *wrote* into its own annotation ledger.
+The two disagreeing is the most useful diagnostic there is for a widget that was
+annotated and still cannot be found. Comparing them is deliberately **not** a feature of
+either package: it spans two repos, so it belongs in a `probes/` script or a written
+recipe, where nobody has to install one library to debug the other.
 
 ## How it finds things
 
@@ -544,6 +656,10 @@ From the fixture apps in this repo, on a Windows 11 development machine:
 | One `exists()` that finds nothing, with `[ocr]` installed | 7 grabs in 5.25 s at the default implicit wait — 7 foreground steals, ~0.78 s apart |
 | Launch of a command that dies at once | 0.34 s to `LaunchFailed`, against 6.42 s of an overridden 6.2 s deadline before 0.4.1 |
 | A one-shot UIA miss under a real window | well under 1 s (a spec asserts this, to catch `uiautomation` retrying underneath) |
+| `app.dump()` of a fixture window | 10 controls in **26 ms** (WinForms); 21 in 39–44 ms (Tk with its dialog open); 9 in 15–24 ms (canvas) |
+| `app.dump()` of a browser window showing a video page | 5437 controls in **1.75 s** — past the 500-control cap, so it stops and says so |
+| `app.dump()` of the desktop's `Program Manager` | **5 controls in 4.1 s**, all of it inside a single `GetFirstChildControl` — which is why there is a wall-clock budget as well as a node cap |
+| Per control walked | 0.55 ms for identity, +0.17 ms for the fact behind `[mouse]`. Pattern probing would add 0.19 ms and is not done: whether a provider *advertises* `Invoke` is the question the trust rule exists because you cannot believe |
 
 The recogniser is not the bottleneck, and by two orders of magnitude. Bringing the
 window to the front — so that the screen grab photographs the right application — is:
@@ -623,7 +739,8 @@ Windows runner is a roadmap item.
 src/pytest_uia/
 ├── plugin.py        # the pytest11 entry point: re-exports from hooks, nothing else
 ├── hooks.py         # the ONLY module that imports pytest
-├── domain/          # stdlib only — queries, the locator chain, waiting, text matching
+├── __main__.py      # `python -m pytest_uia`: argparse over the same attach and dump
+├── domain/          # stdlib only — queries, the locator chain, waiting, the tree dump
 ├── adapters/        # uiautomation, comtypes, WinRT, mss, ctypes — nothing leaks past here
 └── application/     # composes the two; imports pytest nowhere
 

@@ -1,5 +1,102 @@
 # Changelog
 
+## 0.5.0 — 2026-07-26
+
+The accessibility tree dump. A newcomer's first real question is *what is my
+control called?*, and until now this project's answer was "go and install
+Accessibility Insights" — or a four-line `uiautomation` walk the README taught
+them to write by hand. It is now one call, and the answer arrives in the tool
+they already have.
+
+- **`app.dump()`, `dialog.dump()`, and `python -m pytest_uia --title "..."`.**
+  Each line names the control type, the accessible name, the AutomationId
+  where there is one, and — the point of the whole feature — **the query that
+  would find it**: `app.button("New Task")`, ready to paste. That is the
+  difference between a picture of a tree and an answer. The command line
+  exists because the person this is for has an application on screen and no
+  test yet, so an answer beginning "first write a test" is the wall the
+  feature was built to remove; it is a thin shell over the same `attach` and
+  `dump` a test makes, and a session that did not start a process never ends
+  one. A `Dump` is a value object: `str()` for the tree, `.queries` for the
+  same list as data so a spec need not parse layout, `.with_window_chrome()`
+  for the rendering that folds nothing. It does **not** print by itself —
+  printing from a library call is a side effect a diagnostic should not have,
+  and under pytest it would vanish into captured output; `print(app.dump())`
+  with `-s`, or put it in the failure message, or use the command line.
+
+- **The rule the whole design answers to: it must not quietly omit what it
+  cannot see.** A control no query can reach is printed with the reason
+  instead — `no query: PaneControl is not a role this plugin asks for`, or for
+  a canvas window's empty pane, `no query: nothing inside it, so what it shows
+  is paint`. A tidy tree that disagrees with the window on screen would be
+  worse than no tree at all: the reader would conclude their button was
+  somewhere in it. The same rule is why the folded window chrome is counted,
+  named and reversible rather than dropped, why the header's four categories
+  plus the window itself must sum to the total (a spec asserts the
+  arithmetic), and why a control whose provider dies mid-walk is kept and
+  marked `<unreadable>` rather than either dropped or allowed to abandon the
+  four hundred controls that did answer.
+
+- **No depth limit, refused rather than deferred.** `uiautomation`'s own
+  `maxDepth` cannot report that it pruned anything. Measured: a browser window
+  cut at depth 8 yields 1486 of its 5437 controls and says nothing whatsoever
+  about the other 3951. That is exactly the silent omission above, so a node
+  cap and a wall-clock budget do the bounding instead — and both know when
+  they bit, and both name the call that lifts them.
+
+- **Both limits are needed, and one window proved it.** The desktop's
+  `Program Manager` has **five controls and takes 4.1 seconds**, all of it
+  inside a single `GetFirstChildControl`. A node cap bounds how much there is
+  to read and bounds the time not at all. The budget is checked between
+  controls and cannot interrupt a provider that has stopped answering; that is
+  documented rather than fixed, because fixing it means a worker thread and
+  `uiautomation` is explicitly single-threaded-apartment-bound in this
+  codebase. Against that, the three fixture windows dump in 15–44 ms.
+
+- **Ambiguity is counted over what a query actually reaches, not over
+  matching names.** The Tk fixture has a `Confirm` in its Settings dialog and
+  another on the window underneath, and the dump reports
+  `ambiguous: 2 controls answer app.button("Confirm")` on the outer one while
+  offering `app.dialog("Settings").button("Confirm")` plainly on the inner —
+  because an unscoped search runs over the main window's whole subtree,
+  dialogs included, and a scoped one does not. Marking both would have been
+  the dump contradicting the very API it documents, and sending readers back
+  to coordinates over a call that works. `dialog.dump()` answers in that
+  dialog's own calls for the same reason.
+
+- **`[mouse]` states what pytest-uia will do, never what a control supports.**
+  Measured: every title-bar button answers to the untrusted-provider rule
+  (`FrameworkId` is empty, so the generic MSAA proxy speaks for it) and its
+  `Invoke` works perfectly. A dump that told users their application was
+  broken would be worse than no dump, so the marker and its legend are worded
+  as this plugin's own rule and the legend appears only where the marker does
+  — a distinction the end-to-end run caught, since folding the chrome away had
+  been leaving four lines of explanation under a WinForms tree with no
+  `[mouse]` anywhere in it. `[offscreen]` marks a control that is in the tree
+  with no pixels, which is what `wait_visible()` exists for.
+
+- **The AutomationId is shown and captioned as unqueryable.** v1 searches by
+  name and role only, and measured, WinForms derives the id from the window
+  handle: the same three controls of the same app came back as
+  `198966 / 723224 / 919832` across three launches. Showing it is useful —
+  Accessibility Insights shows it, and WPF and `tk_uia.set_automation_id` set
+  it deliberately — but a reader must not pin a test to one, so the README
+  says so and the dump never offers it as a query.
+
+- **The dump takes no input and steals no foreground.** It reads properties;
+  it never clicks, types, brings a window forward or photographs the screen.
+  So it keeps working while Windows is refusing this process's synthetic input
+  — which is exactly the situation in which somebody most needs to know what
+  their controls are called. Its own gui specs are immune to the skip the rest
+  of the gui suite needs.
+
+- **Left out on purpose.** The cross-repo diff against `tk-uia`'s in-process
+  annotation ledger, which spans two repositories and is therefore a `probes/`
+  recipe rather than a feature of either package. Dump-on-failure, which wants
+  the same plumbing as the deferred screenshot-on-failure and should be built
+  with it. Querying by AutomationId, JSON output, and `element.dump()` — all
+  on the roadmap, none needed yet.
+
 ## 0.4.1 — 2026-07-26
 
 Bug fixes and documentation, all of them from an external review. The theme is

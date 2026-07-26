@@ -7,6 +7,53 @@ into coordinates. Breadth of widget support comes second to that, and speed come
 a distant third: a gui suite is bounded by the application's own repaint, not by
 anything in here.
 
+## Shipped in v0.5
+
+The accessibility tree dump — the answer to the first question anyone
+actually has, in the tool they already have installed.
+
+- **`app.dump()` and `dialog.dump()`**, plus
+  `python -m pytest_uia --title "..."` for an application that is on screen
+  before any test exists. Each line names the control *and the query that
+  would find it*, which is what turns a diagnostic into a copy-paste answer.
+  It returns a `Dump`: `str()` for the tree, `.queries` for the same list as
+  data, `.with_window_chrome()` to unfold the title bar. It does not print by
+  itself — printing from a library call is a side effect a diagnostic should
+  not have, and under pytest it would vanish into captured output anyway.
+
+- **It does not quietly omit what it cannot see**, and that governed every
+  other decision. A control no query reaches is printed with the reason
+  instead of a query. The folded window chrome is counted, named and
+  reversible. The node cap and the wall-clock budget each say when they bit
+  and name the call that lifts them. There is **no depth limit**, refused
+  rather than deferred: `uiautomation`'s `maxDepth` gives no signal that it
+  pruned anything, and a browser window at depth 8 yields 1486 of its 5437
+  controls in total silence — which is precisely the failure everything above
+  exists to prevent.
+
+- **Both limits are needed, and this was measured.** A node cap bounds how
+  much there is to read; only a clock bounds how long it takes, because the
+  desktop's `Program Manager` answers five controls in 4.1 seconds and spends
+  all of it inside one call. The budget is checked between controls and cannot
+  interrupt a provider that has stopped answering; that is documented rather
+  than fixed, since fixing it means a worker thread and `uiautomation` is
+  single-threaded-apartment-bound here.
+
+- **`[mouse]` describes what pytest-uia will do, never what a control
+  supports.** Measured: every title-bar button answers to the
+  untrusted-provider rule and its `Invoke` works perfectly. A dump that told
+  users their application was broken would be worse than no dump. The same
+  care applies to the AutomationId, which is shown and captioned as
+  unqueryable — for WinForms it is HWND-derived and different on every launch.
+
+- **The sibling in-process dump in `tk-uia`, and the diff nobody built.**
+  `tk-uia` reports what an application wrote into its own annotation ledger;
+  this reports what Windows will tell another process. The two disagreeing is
+  the best possible diagnostic for a widget that was annotated and still
+  cannot be found — and comparing them spans two repositories, so it is a
+  `probes/` script or a written recipe, deliberately not a feature of either
+  package.
+
 ## Shipped in v0.4
 
 Child modal dialogs — and a correction to what this roadmap used to say about
@@ -101,16 +148,15 @@ window with a rich accessibility tree and one without.
 
 ## Next
 
-- **A tree dump from the driver, for 0.5.0.** The first question anyone has is
-  *what is my control's accessible name?*, and today the answer is a separate
-  tool — Accessibility Insights, `inspect.exe`, or the four-line `uiautomation`
-  walk the README now shows. It should be one call on `App`: the window's
-  controls, their control types and their names, printed in a shape a reader
-  can turn straight into `app.button(...)` lines. It is the affordance that
-  makes the difference between "this plugin cannot see my button" and "my
-  button has no name, and here is the proof" — which are the same fact and
-  wildly different experiences. Deliberately a feature rather than a fix, so it
-  waits for a minor release.
+- **Querying by AutomationId.** The dump shows it; no query can search by it.
+  Worth having only for frameworks that set one deliberately — WPF, and any
+  application calling `tk_uia.set_automation_id` — because measured, WinForms
+  derives it from the window handle and it differs on every launch. Which is
+  also why the dump captions it rather than offering it as a query.
+- **Dump on failure.** A pytest hook attaching `app.dump()` to the report of a
+  test that could not find a control. It is the same shape as screenshot on
+  failure, below, and wants the same `--uia-*-dir` plumbing — so they get done
+  together or not at all.
 - **Dialogs within dialogs, and pinning a dialog to the window it opened as.**
   `App.dialog` addresses a child of the main window; a `Browse…` sheet opened
   from a wizard step is a child of *that* step, and reaching it means `Dialog`
