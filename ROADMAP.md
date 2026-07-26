@@ -101,12 +101,31 @@ window with a rich accessibility tree and one without.
 
 ## Next
 
-- **Dialogs within dialogs.** `App.dialog` addresses a child of the main window;
-  a `Browse…` sheet opened from a wizard step is a child of *that* step, and
-  reaching it means `Dialog` growing the same call. Not built because nothing
-  has needed it yet, and because a dialog's scope already includes its own
-  children — so the ambiguity only returns when two nested windows reuse a
-  caption.
+- **A tree dump from the driver, for 0.5.0.** The first question anyone has is
+  *what is my control's accessible name?*, and today the answer is a separate
+  tool — Accessibility Insights, `inspect.exe`, or the four-line `uiautomation`
+  walk the README now shows. It should be one call on `App`: the window's
+  controls, their control types and their names, printed in a shape a reader
+  can turn straight into `app.button(...)` lines. It is the affordance that
+  makes the difference between "this plugin cannot see my button" and "my
+  button has no name, and here is the proof" — which are the same fact and
+  wildly different experiences. Deliberately a feature rather than a fix, so it
+  waits for a minor release.
+- **Dialogs within dialogs, and pinning a dialog to the window it opened as.**
+  `App.dialog` addresses a child of the main window; a `Browse…` sheet opened
+  from a wizard step is a child of *that* step, and reaching it means `Dialog`
+  growing the same call. Not built because nothing has needed it yet, and
+  because a dialog's scope already includes its own children — so the ambiguity
+  only returns when two nested windows reuse a caption. Which is exactly where
+  the second half of this item bites: `Dialog` remembers its *caption*, not the
+  window it was handed, so `wait_closed` re-searches by name and a second
+  window reusing that caption would keep it waiting forever, and `dialog_titled`
+  searches at any depth and so could answer with a grandchild. Pinning the
+  window by its UIA runtime id at `App.dialog` time fixes both, and it belongs
+  here rather than on its own: for one dialog over one main window the current
+  behaviour is right, and it is nesting that turns the edge case into the
+  ordinary case. Doing them together also avoids growing the `Window` port
+  twice.
 - **Substring and regex name matching.** v1 matches accessible names exactly,
   which breaks the moment an app appends a count or a state to a caption
   ("Inbox (3)").
@@ -138,9 +157,13 @@ window with a rich accessibility tree and one without.
   foreground changes and synthetic input reliably enough to be a gate — rather
   than a source of the exact flakiness v0.1 spent its budget removing — is an
   open question that deserves an experiment rather than an assumption.
-- **Keyboard injection that reports refusal.** Clicks now surface Windows'
-  refusal; keystrokes do not, because `SendKeys` has no return value to inspect.
-  Fixing it means owning key-name parsing rather than borrowing it.
+- **Keyboard injection that reports refusal.** Clicks surface Windows' refusal,
+  and since 0.4.1 so does a window that would not come to the front — which is
+  the step in front of every keystroke, so a great deal of the silence is
+  gone. What is left is the injection itself: `SendKeys` has no return value to
+  inspect, so a keystroke Windows drops after the window *did* come forward is
+  still silent. Fixing that means owning key-name parsing rather than borrowing
+  it.
 
 ## Non-goals for v1
 
@@ -154,7 +177,11 @@ addition later; none is missing by accident.
   is the wrong tool — see the README's table.
 - **OCR-targeted `type_text`.** OCR cannot see roles, so it cannot distinguish an
   input box from the label beside it; typing into something it located is a
-  coin-flip dressed up as an API.
+  coin-flip dressed up as an API. **Refused in code since 0.4.1**, not merely
+  in this list: `OcrElement.type_text` used to click the recognised phrase and
+  send keys, which is precisely the coin-flip, and the README documented the
+  misfire as a limitation of a feature this page says does not exist. It now
+  raises `OcrTypingRefused` naming the two things that work instead.
 - **Other OCR engines.** Windows' built-in recogniser is the whole point: no
   install, no model, no second thing to configure.
 - **Non-Windows.** UI Automation is a Windows API. The domain layer is kept free

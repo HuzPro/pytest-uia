@@ -1,5 +1,154 @@
 # Changelog
 
+## 0.4.1 — 2026-07-26
+
+Bug fixes and documentation, all of them from an external review. The theme is
+the one this project already claimed: a failure has to name what actually
+happened. Five places were not keeping that promise, and the worst of them was
+the scenario the design is proudest of handling.
+
+- **An application that dies mid-test no longer answers in raw HRESULTs.** The
+  whole driver — proxy elements, re-resolved on every interaction, an implicit
+  wait that retries a miss — exists to absorb a window that is not what it was
+  a moment ago. Its extreme is a window that is not there at all: a crash, or
+  the test's own click landing on Quit. Reproduced by launching the WinForms
+  fixture, killing it, and asking the two simplest questions in the API:
+  `exists()` and `App.title` both raised `_ctypes.COMError: (-2147220991, 'An
+  event was unable to invoke any of the subscribers', ...)` — from the call
+  documented as answering True or False *for both directions of assertion*, and
+  from a package whose errors module opens by promising that a test never has
+  to read a comtypes HRESULT. Neither was a near miss: the adapter never
+  translated `COMError` into anything the retry loop recognised, so nothing
+  retried and nothing explained. Every boundary now translates — the
+  accessibility-tree search, the pixel search behind it, the child-window
+  search, the window's own `title`, `pid` and `close`, and every property an
+  element reads — into the domain error that fits, carrying "the window is
+  gone: the application behind it has exited". `exists()` answers `False`,
+  `has_dialog` answers `False`, and `App.title` raises `WindowNotFound` naming
+  the window where it can. Specified twice over: with doubles for the parts
+  that take a control (`tests/test_uia_dead_window.py`), and end to end against
+  a real fixture app that has been shut down for the three searches that build
+  their own `uiautomation` objects and cannot be handed a misbehaving one
+  (`tests/test_dead_app_end_to_end.py`).
+
+- **A launch whose command is already over fails at once, with the exit code.**
+  `gui.launch([sys.executable, "-c", "import sys; sys.exit(3)"])` used to wait
+  out the entire `ready_timeout` — measured at 6.42 s against an overridden
+  6.2 s, and thirty seconds by default — and then raise `WindowNotFound: no
+  visible top-level window for pid 19940`, about a process that had been dead
+  almost immediately, mentioning neither the exit nor its code. That is the
+  first wall every newcomer with a typo in a command path walks into, and the
+  answer it gave sent them looking at the window instead of at the command. The
+  poll now questions the process when it finds no window, and the new
+  **`LaunchFailed`** says `the launched command exited with code 3 before it
+  owned a window`. Same command, 0.34 s. Deliberately in that order — window
+  first, process only if there is none — because `cmd /c`, a console-script
+  shim and a `.bat` all exit the moment the real application is up, so an exit
+  is evidence of nothing while there is a window on screen. A spec pins that
+  ordering, since the obvious implementation gets it backwards and breaks every
+  launcher the 0.1.0 process-family work existed to support.
+
+- **`SetActive`'s answer stops being thrown away, so misdirected input is
+  detectable.** The marquee feature of 0.1.0 is refusing to let a dropped click
+  impersonate a delivered one — and four call sites brought the window under
+  test to the front and discarded the bool that says whether it worked.
+  `SetForegroundWindow` fails for entirely ordinary reasons with no UIPI
+  anywhere near it: another application called `LockSetForegroundWindow`, or
+  simply got there first. Carrying on regardless produces exactly the two
+  failures this project exists to refuse — the mouse presses coordinates
+  another application now owns, and the screen grab photographs whatever is
+  covering the window, after which OCR reports "phrase not visible" about a
+  phrase that is plainly there. It now raises `InputRefused`, which the driver
+  already retries inside the implicit wait and reports against the deadline, so
+  a foreground race costs a retry and a stolen foreground costs an honest
+  failure naming the window. The fixture apps dodge all of this with
+  `-topmost`; a user's application does not, which is why no spec was failing.
+  One measured subtlety pins the design: a window whose application has
+  **exited** answers `SetActive` with False too, because its native handle has
+  become 0 — so the refusal reads the window's caption, which a live window
+  answers and a dead one raises on, and the two get opposite reports.
+
+- **`OcrElement.type_text` refuses instead of half-working, and that is a
+  deliberate behaviour change in a patch release.** `ROADMAP.md` lists
+  OCR-targeted `type_text` among the things refused outright — "typing into
+  something it located is a coin-flip dressed up as an API" — and the code
+  implemented that coin-flip: click the recognised phrase, then `SendKeys`. The
+  README then documented the misfire, keystrokes landing "wherever clicking
+  that label put the caret", as a limitation of a feature the roadmap says does
+  not exist. It now raises `OcrTypingRefused`, naming the two things that do
+  work: annotate the box so UIA can see it, or type through a UIA-located
+  element. This is the same judgement the adapter already makes about an
+  `Invoke` the generic MSAA proxy only advertises — decline a call that returns
+  cleanly having reached nothing anybody chose — turned on this package's own
+  API. It is normally minor-bump material and it is in a patch anyway, on three
+  grounds stated plainly: the current behaviour is a documented non-goal that
+  silently misfires, nothing is published on PyPI so no installed version can
+  regress, and no spec depended on it succeeding — there was no spec for it at
+  all, which is its own comment on the feature.
+
+- **`AppProcess.terminate` no longer returns quietly with the process alive.**
+  It escalates through `terminate`, `kill` and `taskkill /t /f`, and if every
+  rung failed the loop simply ended and the method returned as though it had
+  worked. A wedged app then sat on the next test's screen with nothing anywhere
+  saying which run left it there. It raises **`ProcessStillRunning`** naming the
+  pid. The session's teardown, which is blind by design so that one unkillable
+  app strands none of the others, now warns rather than swallowing it in
+  silence — blind is not the same as silent, and the run that caused the leak
+  is the only one that knows about it.
+
+- **`ElementNotFound` says how long it waited.** `DialogNotFound` and
+  `InputRefused` both carry their deadline and this did not, so a control that
+  was never going to appear read exactly like one that had been given a tenth
+  of a second to. It now leads with `not on screen after 5.0s;` before the
+  chain's own account of where each link looked.
+
+- **OCR recognition moved off `asyncio.run`, which was a crash waiting for the
+  first async test.** `asyncio.run` refuses to start a second event loop on a
+  thread that already has one, so any `pytest-asyncio` suite whose async test
+  reached OCR got a bare `RuntimeError` about event loops — from a call with no
+  visible connection to asyncio, and from outside the domain's error contract
+  entirely. The obvious fix, the WinRT operation's own blocking `get()`, does
+  not work either: it refuses to be called from the single-threaded apartment
+  that importing `uiautomation` has already put the caller in, which is why
+  this needed measuring rather than reasoning about. The recognise is waited
+  for on a fresh joined thread instead, which has neither problem — no loop,
+  and no apartment until something asks for one. That is the contingency this
+  module's first version wrote down and did not need yet. It is also faster:
+  1.34 ms a recognition against 1.96 ms on a 460×280 image over twenty rounds,
+  because the event loop it no longer builds and tears down cost more than the
+  thread does. Warm recognition against the canvas fixture measured 4.5–6.4 ms,
+  median 5.1.
+
+- **Two new exported failures**, `LaunchFailed` and `ProcessStillRunning`, both
+  on the same reasoning as every failure before them: a suite can only decide
+  what a condition means if it can catch it by name. `OcrTypingRefused` is
+  deliberately *not* exported, exactly as `OcrUnavailable` is not — both belong
+  to the optional pixel path, and neither is something a suite should be
+  catching rather than fixing.
+
+- **Documentation, from the same review.** A CI badge, for a workflow that has
+  been real and green all along. A **"finding your control's name"** section —
+  the actual first question a newcomer has, previously answered nowhere: a
+  four-line `uiautomation` tree walk with its verified output against the
+  WinForms fixture, plus Accessibility Insights and `inspect.exe`. A runnable
+  Quickstart, since `todo_app.py` never existed and the fixture apps' launch
+  incantations lived only in `tests/conftest.py`. A table of every failure and
+  what it blames, and an explicit note on the two things `exists()` still
+  raises rather than absorbing — `OcrUnavailable` and now `InputRefused`, both
+  meaning *this machine could not answer* rather than *the control is absent*.
+  And the foreground cost of asserting absence with `[ocr]` installed, which
+  was disclosed as a latency number and is really a behaviour: measured at 7
+  grabs in 5.25 s at the default implicit wait, each one yanking the window
+  under test in front of whatever else is on screen.
+
+- **Deferred, with reasons.** Pinning a `Dialog` to the window it opened as,
+  rather than re-finding it by caption, is on [ROADMAP.md](ROADMAP.md) against
+  the nested-dialogs item: for one dialog over one main window the current
+  behaviour is right, it is nesting that turns the caption collision into the
+  ordinary case, and doing them together grows the `Window` port once instead
+  of twice. A tree dump built into `App` is a 0.5.0 feature rather than a patch,
+  which is why the README teaches the manual walk in the meantime.
+
 ## 0.4.0 — 2026-07-26
 
 A test can now say which window it meant. Child modal dialogs are addressable by

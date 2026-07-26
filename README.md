@@ -1,5 +1,6 @@
 # pytest-uia
 
+[![tests](https://github.com/HuzPro/pytest-uia/actions/workflows/tests.yml/badge.svg)](https://github.com/HuzPro/pytest-uia/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
@@ -69,6 +70,32 @@ afterwards, whether the test passed, failed or raised. The `gui` marker is regis
 the plugin, so `-m "not gui"` works with no ini changes, and `--strict-markers` does not
 complain.
 
+`todo_app.py` above stands for *your* application. To run something real before you have
+one, point it at a fixture app from this repo — they are the same three windows the
+suite here drives:
+
+```python
+import sys
+from pathlib import Path
+
+import pytest
+
+FIXTURE_APPS = Path("path/to/pytest-uia/tests/fixture_apps")
+
+
+@pytest.mark.gui
+def test_the_tk_fixture_app_can_be_driven(gui):
+    app = gui.launch([sys.executable, str(FIXTURE_APPS / "tk_canvas_app.py")])
+
+    assert app.title == "pytest-uia Canvas Fixture"
+```
+
+`tk_canvas_app.py` needs nothing but Python; `tk_app.py` additionally needs
+[`tk-uia`](https://github.com/HuzPro/tk-uia) installed, and the WinForms one is a
+PowerShell script that has to be launched the way `tests/conftest.py` launches it
+(`-Sta` is not optional, and `-WindowStyle Hidden` keeps the console host from being a
+second window owned by the same pid).
+
 To drive something already on screen instead of launching it:
 
 ```python
@@ -86,7 +113,7 @@ is using. A launched one always is.
 | `gui.attach(title=..., timeout=10.0)` | Take a handle on a window already on screen, by its caption. |
 | `app.button(name)` / `app.textbox(name)` / `app.text(value)` | An element, resolved lazily and re-resolved on every interaction. |
 | `element.click()` / `.type_text(s)` / `.read_text()` | Act on it, or read it. |
-| `element.exists(timeout=None)` | `True`/`False` instead of an exception, for both directions of assertion. |
+| `element.exists(timeout=None)` | `True`/`False` instead of an exception, for both directions of assertion. Two things still raise through it — see [what `exists()` does not absorb](#what-exists-does-not-absorb). |
 | `element.wait_visible(timeout=None)` | Block until it is actually painted, then return itself so a call can follow. |
 | `element.wait_until_text_is(expected, timeout=None)` | Block until it reads exactly `expected`, then return itself so a call can follow. |
 | `app.dialog(title, timeout=None)` | Wait for a child window and return a `Dialog` whose queries stop at that window's edge. |
@@ -97,6 +124,39 @@ is using. A launched one always is.
 | `--uia-timeout SECONDS` | The implicit wait every lookup inherits. Default 5 s; any call can override it with `timeout=`. |
 
 Names are matched **exactly** in v1. Substring and regex matching are on the roadmap.
+
+### The failures, and what each one blames
+
+Every one of these is exported from the package, so a suite can catch it by name. That
+is the whole point of there being more than one: a gui failure usually leaves nothing
+behind but its message, and which exception it is says where to start looking.
+
+| Failure | What it means |
+|---|---|
+| `ElementNotFound` | Nothing matched the query for the whole wait. Carries how long it waited and what each link of the chain saw. |
+| `WindowNotFound` | The application has nothing on screen at all — including the case where it *had* something and the application has since exited. |
+| `LaunchFailed` | The launched command was over before it owned a window, with the exit code it ended on. |
+| `DialogNotFound` | The main window is right there and the addressed child window is not, so the first suspect is the step that was supposed to open it. |
+| `DialogStillOpen` | Nothing is missing; a dialog a test waited to see the back of is still up. |
+| `TextNeverSettled` | The element was found on every look and never read what was expected. |
+| `InputRefused` | Windows dropped this process's synthetic input, or would not bring the window under test to the front. Not the application's fault, and the message names what was in the way. |
+| `ProcessStillRunning` | Every way of ending an application was tried and it is still there — so the next test is about to share the desktop with it. |
+
+### What `exists()` does not absorb
+
+`exists()` turns an `ElementNotFound` into `False`, and that is deliberately all it
+turns into `False`. Two failures still come out of it, because answering "no" to either
+would be a confident report about something never actually looked at:
+
+- **`OcrUnavailable`** — Windows has no OCR language pack installed for any of this
+  user's languages, so the pixel link could not read anything and never will. Only
+  reachable with the `ocr` extra installed.
+- **`InputRefused`** — the window under test would not come to the front for the whole
+  wait, so a screen grab would have photographed whatever is covering it. Also only
+  reachable through the pixel link.
+
+Both mean *this machine could not answer the question*, which is a different thing from
+*the control is not there*.
 
 ### Driving a dialog
 
@@ -129,6 +189,58 @@ A dialog that never opens raises **`DialogNotFound`** (not `WindowNotFound`, whi
 the application has nothing on screen at all — a different first suspect), and one that
 will not go away raises **`DialogStillOpen`** from `wait_closed()`. Both messages name
 the caption, where it was looked for, and how long. Both are exported, as is `Dialog`.
+
+## Finding your control's name
+
+Every query here is a name and a role, so the first question anyone actually has is
+*what is my control called?* The accessible name is often not the visible caption, and
+for a control nobody thought about it is often the empty string.
+
+Three ways to look, cheapest first.
+
+**Dump the tree from Python.** `uiautomation` is already installed as a dependency of
+this plugin, so with the app on screen:
+
+```python
+import uiautomation as auto
+
+window = auto.Control(searchDepth=1, Name="pytest-uia WinForms Fixture")
+for control, depth in auto.WalkControl(window, includeTop=True):
+    print(f"{'  ' * depth}{control.ControlTypeName} {control.Name!r}")
+```
+
+against this repo's WinForms fixture, that prints:
+
+```
+WindowControl 'pytest-uia WinForms Fixture'
+  TextControl 'ready'
+  EditControl 'Title'
+  ButtonControl 'New Task'
+  TitleBarControl ''
+    MenuBarControl 'System'
+      MenuItemControl 'System'
+    ButtonControl 'Minimize'
+    ButtonControl 'Maximize'
+    ButtonControl 'Close'
+```
+
+Read that as the three queries it authorises: `app.text("ready")`,
+`app.textbox("Title")`, `app.button("New Task")` — `TextControl` is `text`,
+`EditControl` is `textbox`, `ButtonControl` is `button`. A control printed with `''` for
+a name cannot be reached by any query at all, which is the finding rather than a
+formatting accident: see [the Tkinter case](#the-tkinter-case-stated-precisely).
+
+**Accessibility Insights for Windows** ([accessibilityinsights.io](https://accessibilityinsights.io/))
+is Microsoft's free inspector, and the one to reach for when the tree is big: hover any
+control and it shows the name, the control type and the patterns, live.
+
+**`inspect.exe`** ships with the Windows SDK, under
+`C:\Program Files (x86)\Windows Kits\10\bin\<sdk version>\x64\inspect.exe`. It is the
+older tool and it is fussier, but it is already on any machine with the SDK installed
+and it shows the raw UIA property set, which is occasionally what you need.
+
+A tree dump built into the driver — one call on `App`, no separate tool — is
+[on the roadmap](ROADMAP.md) for 0.5.0.
 
 ## How it finds things
 
@@ -283,7 +395,7 @@ an open question on the [ROADMAP](ROADMAP.md), unanswerable until Tk 9.1 is inst
 
 ## Limitations you should know before adopting this
 
-### OCR ignores roles
+### OCR ignores roles, so typing into what it found is refused
 
 The recogniser can only see text. It cannot know whether the phrase it matched was
 painted on a button, on a label, or inside a picture. The concrete consequence:
@@ -293,9 +405,35 @@ app.textbox("Title").type_text("Buy milk")
 ```
 
 resolved by OCR will match the **label** reading "Title" beside the box rather than the
-empty box itself, and the keystrokes then go wherever clicking that label put the caret.
-Roles are honoured by UIA, and by UIA alone. If your app has an accessibility tree, this
-never bites you — the chain never reaches OCR.
+empty box itself. Rather than click those words and send the keys wherever that put the
+caret, this **raises `OcrTypingRefused`** naming the two things that do work: give the
+box an accessible name so UIA can see it (for Tk, that is one `tk_uia.enable(root)`), or
+type through an element UIA located. It is the same judgement the adapter already makes
+about an `Invoke` the generic MSAA proxy only advertises — decline a call that would
+return cleanly having reached nothing anybody chose — turned on this package's own API,
+and it is what [ROADMAP.md](ROADMAP.md) always said the answer was.
+
+Clicking, reading and `exists()` are unaffected: *where* a phrase is, is exactly what
+OCR does know. Roles are honoured by UIA and by UIA alone, so if your app has an
+accessibility tree none of this bites you — the chain never reaches OCR.
+
+### With `[ocr]` installed, asserting absence repeatedly steals the foreground
+
+```python
+assert not app.text("error").exists()
+```
+
+is the cheapest-looking line in a suite and one of the most expensive. Nothing matches,
+so every poll walks the whole chain, and the pixel link at the end of it brings the
+window to the front and photographs it before it can say no. Measured against the
+WinForms fixture at the default 5 s implicit wait: **7 grabs in 5.25 s, roughly 0.78 s
+apart**, each one a foreground steal — because `uiautomation.SetActive()` sleeps half a
+second unconditionally, whatever happened.
+
+This is a behaviour, not only a latency: for five seconds the window under test is
+repeatedly yanked in front of whatever else is on screen. Give assertions of absence a
+short deadline of their own — `exists(timeout=0.5)` — since a control you expect to be
+missing rarely deserves the wait a control you expect to appear does.
 
 ### The fallback paths depend on synthetic mouse input, and that can be refused
 
@@ -325,6 +463,14 @@ pytest-uia handles it honestly rather than silently:
 - `uiautomation.Click` discards Windows' answer about whether the event was delivered.
   pytest-uia does not: it keeps the return values of `SetCursorPos` and `SendInput` and
   raises `InputRefused` when they say the event was dropped.
+- The same applies one step earlier, to **bringing the window forward**. Every path that
+  ends in the mouse, the keyboard or a screen grab has to put the window under test in
+  front first, and `SetForegroundWindow` fails for entirely ordinary reasons with no
+  integrity level involved anywhere — another application called
+  `LockSetForegroundWindow`, or simply got there first. `SetActive`'s answer is kept
+  too, and a window that would not come forward raises `InputRefused` naming it rather
+  than being clicked at, or photographed, where it is not. The fixture apps in this repo
+  dodge this with `-topmost`; your application does not.
 - The driver **retries** a refused click inside the element's implicit wait, because the
   theft is usually transient. One deadline covers resolving and clicking, so a refusal
   never costs twice the configured timeout.
@@ -376,17 +522,27 @@ pytest-uia resolves a window owned by the launched process **or by anything desc
 from it**, walking a `CreateToolhelp32Snapshot` of the process table on each attempt. So
 the obvious call works, which is the point.
 
+The other half of that: a command that is *not* really a launcher, and simply dies —
+a typo in the path, an import error in the app, a wrapper script returning non-zero —
+fails immediately with **`LaunchFailed`** and the exit code it died on, rather than
+spending the whole `ready_timeout` proving that a dead process still owns no window. The
+window is looked for first and the process only questioned when there is none, because
+`cmd /c`, a console-script shim and a `.bat` all exit the moment the real application is
+up: an exit only means anything when there is nothing on screen.
+
 ## Measured
 
 From the fixture apps in this repo, on a Windows 11 development machine:
 
 | | |
 |---|---|
-| OCR recognition, warm | **5–13 ms** per grab of a fixture window, across three sessions — most recently 8–12 ms against the 460×280 canvas fixture |
-| OCR recognition, first call in a process | 15–83 ms (WinRT engine creation) |
+| OCR recognition, warm | **4.5–13 ms** per grab of a fixture window, across four sessions — most recently 4.5–6.4 ms (median 5.1) against the 476×319 canvas fixture, on the worker thread 0.4.1 moved the recognise onto |
+| OCR recognition, first call in a process | 12.9–83 ms (WinRT engine creation) |
 | OCR accuracy on the canvas fixture | every word, every run — 12 pt Segoe UI, black on white |
 | UIA window readiness after launch | ~0.33 s |
 | Dominant cost of an OCR find | `uiautomation.SetActive()`'s unconditional `time.sleep(0.5)` |
+| One `exists()` that finds nothing, with `[ocr]` installed | 7 grabs in 5.25 s at the default implicit wait — 7 foreground steals, ~0.78 s apart |
+| Launch of a command that dies at once | 0.34 s to `LaunchFailed`, against 6.42 s of an overridden 6.2 s deadline before 0.4.1 |
 | A one-shot UIA miss under a real window | well under 1 s (a spec asserts this, to catch `uiautomation` retrying underneath) |
 
 The recogniser is not the bottleneck, and by two orders of magnitude. Bringing the
@@ -418,8 +574,8 @@ ruff format --check src tests
 calls to give its own widgets names and roles, so it belongs to the fixture rather than
 to the plugin. It is not on PyPI either, hence the path install. Without it, every spec
 that drives the Tk fixture skips with `install tk-uia` rather than failing — the app
-would otherwise die during its own imports and surface as a baffling thirty-second "no
-visible top-level window".
+would otherwise die during its own imports, and a skip that names the missing package
+beats a `LaunchFailed` that can only report the exit code it died on.
 
 **Two consequences of that being a skip rather than a failure.** A full run can go green
 with the entire Tk half unexercised, and only the skip count says so — so read it. And

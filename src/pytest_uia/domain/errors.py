@@ -12,7 +12,12 @@ class ElementNotFound(Exception):
 
 
 class WindowNotFound(Exception):
-    """A launched application owns no visible top-level window (yet)."""
+    """No visible top-level window answers for the application under test.
+
+    Covers both ends of a window's life: one that has not been painted yet,
+    which is what a launch waits through, and one that has been destroyed
+    underneath a test still holding it.
+    """
 
 
 class LaunchFailed(Exception):
@@ -66,7 +71,12 @@ class TextNeverSettled(Exception):
 
 
 class InputRefused(Exception):
-    """Windows dropped the synthetic input this process injected.
+    """The desktop would not let this process reach the window under test.
+
+    Two shapes of the same refusal. Windows dropped the synthetic input this
+    process injected; or it would not bring the window to the front, so
+    anything aimed at that window would have reached whatever is covering it
+    instead — a click on somebody else's application, or a screen grab of one.
 
     Not a missing element: everything the test looked for was found, and the
     desktop simply would not let it be touched. Reporting it as the former
