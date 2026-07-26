@@ -7,6 +7,30 @@ into coordinates. Breadth of widget support comes second to that, and speed come
 a distant third: a gui suite is bounded by the application's own repaint, not by
 anything in here.
 
+## Shipped in v0.2
+
+Tkinter driven through the accessibility tree rather than through its pixels,
+an adapter that refuses to act on a pattern a provider only advertises, and a
+fixture set that makes it visible which link of the chain answered.
+
+- **`tk-uia`, a sibling project.** Tk is unnamed and mis-roled *by default*, and
+  an application can fix that for itself: one `enable(root)` annotates every
+  widget's MSAA name and role through `IAccPropServices`, which Windows bridges
+  into UI Automation. It is a separate package (MIT, zero runtime dependencies,
+  not published) because making a Tk app usable with a screen reader is a
+  broader problem than making it testable. Nothing shipped here imports it: only
+  the Tk fixture app does, and the specs that drive that app skip when it is
+  absent.
+- **The untrusted-provider rule.** An action pattern served by the generic MSAA
+  proxy is not attempted at all: `Invoke` and `SetValue` there succeed and reach
+  nothing, so the mouse and keyboard do the work instead. Reads stay ungated.
+- **Three fixture applications**, the third of them deliberately inaccessible —
+  a canvas-drawn Tk window with zero UIA children, so the pixel path keeps real
+  coverage now that Tk no longer provides it.
+- **Specs that count which link answered**, rather than only that the journey
+  passed: `pixels.asked == 0` for both windows with an accessibility tree, and
+  greater than zero for the one without.
+
 ## Shipped in v0.1
 
 The UIA-first locator chain with an OCR last resort, a fluent driver, the `gui`
@@ -35,10 +59,29 @@ window with a rich accessibility tree and one without.
 - **Substring and regex name matching.** v1 matches accessible names exactly,
   which breaks the moment an app appends a count or a state to a caption
   ("Inbox (3)").
-- **Screenshot on failure.** Designed, specified, and cut from v1 when click
-  resilience turned out to matter more. `mss` is already a core dependency and
-  the capture adapter already exists; what is missing is the pytest hook, a
-  `--uia-screenshot-dir` option, and node-id-to-filename sanitising.
+- **Wire the Tk 9.1 native path.** `tk-uia` detects a Tk that answers
+  `WM_GETOBJECT` for itself, stands down and reports `NATIVE`; wiring the `tk
+  accessible` commands is its own roadmap item, blocked on Tk 9.1 being
+  installable. What that means *here* is a question nobody can answer yet: once
+  Tk carries a real provider the generic MSAA proxy is out of the picture, and
+  whether the trust rule then admits Tk automatically, or needs a check of its
+  own, has to be measured rather than predicted. It is on this list so that the
+  day Tk 9.1 can be installed, somebody looks.
+- **`--uia-trust-invoke={auto,always,never}`.** The rule that decides whether a
+  provider's action patterns can be believed is a hardcoded set of framework
+  ids, and overriding it means editing the package. It will be wrong in one
+  direction or the other eventually — a toolkit that honours `Invoke` and is not
+  on the list, or a proxied control whose `Invoke` really does reach its
+  application — and an escape hatch is cheaper than a release. `auto` is what
+  ships today; `never` is a suite that would rather click everything than risk a
+  silent no-op; `always` is somebody who has measured their own app and knows
+  better.
+- **Screenshot on failure.** Designed, specified, cut from v1 when click
+  resilience turned out to matter more, and deferred again in 0.2 for the
+  correctness work on what a click even *is*. `mss` is already a core
+  dependency and the capture adapter already exists; what is missing is the
+  pytest hook, a `--uia-screenshot-dir` option, and node-id-to-filename
+  sanitising.
 - **Trial the gui suite on a GitHub Windows runner.** The gui specs are
   local-only today. Whether a hosted runner offers a desktop that accepts
   foreground changes and synthetic input reliably enough to be a gate — rather
@@ -66,6 +109,12 @@ addition later; none is missing by accident.
 - **Non-Windows.** UI Automation is a Windows API. The domain layer is kept free
   of it so the platform-independent parts can be tested anywhere, not because a
   port is planned.
+- **Annotating an application this plugin did not write.** Giving a Tk window
+  accessible names is the *application's* own job, and Windows offers no
+  supported way to do it from outside the process: reaching for another
+  process's window handle does not raise, it silently does nothing, and it can
+  corrupt an annotation that process made properly. A Tk app you cannot modify
+  stays an OCR case, deliberately.
 - **Elevated processes.** Driving a window that runs at a higher integrity level
   than the test process requires the test process to be elevated too, and a
   testing tool that asks for administrator is a testing tool nobody runs.

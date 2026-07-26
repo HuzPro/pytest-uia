@@ -1,5 +1,139 @@
 # Changelog
 
+## 0.2.0 — 2026-07-26
+
+Tkinter moves out of the OCR fallback and into the accessibility tree, and the
+pixel path is left with a window that genuinely has no tree at all. Along the
+way, a click that could succeed without pressing anything is fixed.
+
+- **Tkinter is drivable through UI Automation, and the OCR fallback is now a
+  regression path rather than Tk's road in.** v0.1 shipped honest about this:
+  bare Tk puts every widget in the tree under no name and mostly the wrong
+  control type, so a query by name and role matched nothing and OCR carried
+  Tkinter entirely. That was a statement about *bare* Tk, and the missing word
+  was "bare". MSAA lets a process annotate the accessible properties of its own
+  windows through `IAccPropServices`, and UI Automation reads those annotations
+  back out through a proxy that outranks the plain one — so an application can
+  say who its widgets are. That work is its own project,
+  [`tk-uia`](../tk-uia) (MIT, zero runtime dependencies, not published), because
+  "a library that makes Tkinter apps work with screen readers" and "a pytest
+  plugin that drives Windows GUIs" are each one clean sentence and explain each
+  other badly when welded together. Read back through UIA from a separate
+  process, one `tk_uia.enable(root)` turns `tk.Button` into a `ButtonControl`
+  with a real name, `tk.Label` into a `TextControl` rather than an
+  `ImageControl`, and `tk.Entry` into an `EditControl` carrying a `ValuePattern`
+  that did not previously exist. `app.textbox("Title")` and
+  `app.text("task created")` work against Tk from that point, and the README's
+  journey now runs verbatim against both the WinForms and the Tk fixture app,
+  parametrised in `tests/test_public_api_end_to_end.py`. Deliberately not
+  supported: a Tk application whose source you cannot change. Annotation is
+  in-process only — reaching across silently does nothing and can corrupt an
+  annotation the other process made properly — so that case is exactly what the
+  pixel fallback is still here for.
+
+- **`_CONTROL_TYPE_FOR_ROLE` is byte for byte what it was.** The table mapping
+  `button → ButtonControl`, `text → TextControl` and `textbox → EditControl` did
+  not move a character to make Tk work, and that is the point rather than a
+  detail: Tk became drivable by fixing the *application*, not by loosening the
+  *locator*. The alternative was not merely worse, it does not work — widening
+  `text` to accept `PaneControl` would match every anonymous themed widget in a
+  Tk window, and those carry no name to match on either. A locator that matches
+  more things matches the wrong ones.
+
+- **Never trust an action pattern the MSAA proxy is only pretending to
+  support.** `UiaElement` treated "the call raised nothing" as "the call
+  worked", which is true of a real provider and false of the bridge Windows
+  fabricates for any plain window whose owner never wrote one. That bridge
+  synthesises `Invoke` from a posted `BM_CLICK`, and every Tk button is
+  owner-drawn, so the message reaches nothing: measured against a click counter
+  inside the application, `InvokePattern.Invoke()` and
+  `LegacyIAccessible.DoDefaultAction()` both return cleanly and fire nothing.
+  **A Tk test could pass having pressed nothing at all** — the exact failure this
+  project exists to refuse. Action patterns are now taken only from a provider
+  that will honour them, and where the generic proxy is doing the talking the
+  mouse and the keyboard do the work instead; typing there clicks first and then
+  sends keys, because Tk owns focus through its own model and Win32 focus on a
+  child window is not focus. `ValuePattern.SetValue` is gated identically —
+  `put_accValue` into the same void — while *reads* are deliberately left
+  ungated, since a property served out of an annotation store is the
+  application's own word about itself and only acting through a proxy is a
+  guess. The discriminator was measured twice before it was written: both
+  WinForms and Tk are served by that same generic proxy, so its marker alone
+  separates nothing, and their buttons are both `BS_OWNERDRAW`, so the window
+  style separates nothing either. `FrameworkId` does — `'WinForm'` against Tk's
+  `'Win32'`. `test_the_winforms_button_is_still_invoked_through_its_pattern_rather_than_clicked`
+  drives the WinForms fixture with a recording mouse and asserts `clicks == []`
+  while the application still reacts, so the rule cannot quietly widen into the
+  frameworks whose patterns are real.
+
+- **`read_text()` no longer raises `AttributeError` at whoever ran the test.**
+  `uiautomation.GetPattern` answers `None` rather than raising when a provider
+  offers no such pattern, and the result was dereferenced unguarded, so reading
+  an edit control whose provider never offered a `ValuePattern` escaped as a
+  bare `AttributeError`. Not an `ElementNotFound`, so `poll` never retried it
+  and the driver never turned it into a miss: a half-built accessibility tree
+  surfaced as a crash. It now falls back to the control's `Name` when there is no
+  pattern at all. What it does *not* do is fall back on an empty value: an
+  annotated Tk entry nobody has typed into reads as `''`, not as `'Title'`, and a
+  spec pins that, because `pattern.Value or Name` is the plausible fix that would
+  make an empty box report the text of the label beside it and let an assertion
+  pass for the wrong reason.
+
+- **Three fixture applications, not two.** WinForms still stands in for a
+  well-behaved native app; `tests/fixture_apps/tk_app.py` was rewritten as
+  classic Tk that annotates itself and refuses to start unless
+  `tk_uia.enable()` reports `ANNOTATED`, so a version gate that mis-fired fails a
+  test instead of quietly leaving the specs measuring bare Tk; and
+  `tests/fixture_apps/tk_canvas_app.py` is new — one `tk.Canvas`, everything
+  drawn with `create_text`, measured to expose zero UIA children. The OCR specs
+  moved onto it. They were reading a window that had become accessible
+  underneath them, which is a bad place for the specs that exist to prove the
+  pixel path still works, and a new guard,
+  `test_the_canvas_window_exposes_nothing_a_name_based_query_could_reach`,
+  asserts the tree has nothing to answer with — without it, a well-meaning edit
+  that made this fixture accessible would leave the OCR specs passing against a
+  chain that never reaches OCR.
+
+- **The hybrid spec was vacuous, and is now two specs that count.** It claimed to
+  prove that the same journey runs against a window with an accessibility tree
+  and one without. The moment Tk gained one, the chain's first link answered for
+  both, OCR was never consulted, and the spec went on passing under a parameter
+  id reading `tkinter-through-ocr` that had become a lie — passing while proving
+  strictly less than it said. Passing is no longer the evidence; **which link
+  answered is**. `tests/test_uia_hybrid_end_to_end.py` wraps the pixel locator in
+  a counting decorator over the real one, and asserts `pixels.asked == 0` for
+  both windows with a tree and `pixels.asked > 0` for the canvas.
+
+- **The honest cost of the Tk support.** A Tk control is found through the tree
+  but *driven* by synthesised input, because its `Invoke` is pretence — so a Tk
+  suite is exposed to the User Interface Privilege Isolation refusal documented
+  in 0.1.0 where a WinForms suite, going through real patterns, is not. Tk gains
+  UIA's precision — roles, empty text boxes, independence from fonts and themes
+  and DPI — and not UIA's immunity to a higher-integrity window holding the
+  foreground. This recurred while the work was being done: a
+  SYSTEM-owned `GameInputServiceWindow` held the foreground for about fifty
+  minutes and the suite reported `85 passed, 6 skipped`. Nothing failed falsely,
+  which is the guard from 0.1.0 behaving exactly as designed.
+
+- **`ttk` is strictly worse than classic `tk`**, measured across all fifteen
+  themed widget types: every one arrives as an anonymous `PaneControl` and
+  `ttk.Button` has no `InvokePattern` at all, where classic `tk.Button` at least
+  arrives as a `ButtonControl`. The fixture apps are classic `tk` throughout, and
+  so should yours be.
+
+- **Upstream makes this temporary, and slowly.** TIP 733 is Final for Tk 9.1:
+  `win/tkWinAccessibility.c` is merged, MSAA-based, with the same role mapping,
+  so a Tk 9.1 application is accessible with nothing added and `tk_uia.enable()`
+  stands down for it. Tk 9.1 is in beta with stable expected around September
+  2026, but CPython 3.13 and 3.14 bundle Tk 8.6.15 and CPython 3.15 bundles Tk
+  9.0.4, neither of which carries any of it, so the earliest bundled accessible
+  Tk is realistically CPython 3.16. What the trust rule should do with a Tk that
+  answers for itself is an open question until then, and it is on
+  [ROADMAP.md](ROADMAP.md) rather than guessed at here.
+
+- **Still cut:** screenshot-on-failure, deferred again. Nothing about it got
+  harder; the click-correctness work above simply mattered more.
+
 ## 0.1.0 — 2026-07-26
 
 First release. A pytest plugin that locates Windows GUI elements through the UI

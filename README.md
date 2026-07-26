@@ -12,9 +12,11 @@ role — so tests survive theme changes, DPI scaling, resolution changes and mul
 layouts that break screenshot-matching tools.
 
 OCR exists as a **deliberate last resort**, for surfaces whose controls expose nothing a
-name-based query can reach: Tkinter, canvas-drawn UI, anything custom-painted. The two
-are a chain — UIA answers first, and OCR is only consulted when the accessibility tree
-had nothing to say.
+name-based query can reach: canvas-drawn UI, custom-painted controls, anything whose
+interface is a picture of an interface. The two are a chain — UIA answers first, and OCR
+is only consulted when the accessibility tree had nothing to say. Tkinter used to be on
+that list; it is not any more, and
+[The Tkinter case](#the-tkinter-case-stated-precisely) says exactly why.
 
 ### Is this for you?
 
@@ -29,7 +31,8 @@ had nothing to say.
 | Native Win32/WinForms/WPF/Electron desktop app, and you want acceptance tests that read like the acceptance criteria | **pytest-uia.** |
 | Your app has **empty** input boxes to find, or dark mode, or per-monitor DPI | **pytest-uia.** "Find the empty textbox labelled *Title*" is a query here, and a computer-vision problem everywhere else. |
 | You control the app under test and can add accessible names | **pytest-uia.** The act that makes it testable is the act that makes it work with screen readers. |
-| Tkinter dialogs you cannot modify | **pytest-uia**, with the OCR fallback — and read [The Tkinter case](#the-tkinter-case-stated-precisely) first, because the honest answer has caveats. |
+| A Tkinter app **you own** | **pytest-uia**, plus [`tk-uia`](../tk-uia) inside the app itself. One call there gives every widget a name and a role, and every query here is then an ordinary UIA query — full accessibility tree, no OCR. Read [The Tkinter case](#the-tkinter-case-stated-precisely) for what it does and does not buy. |
+| A Tkinter app you **cannot modify** | **pytest-uia**, with the OCR fallback. Annotation is in-process only, so somebody else's Tk app is the case the pixel path still exists for — with all of the caveats below. |
 
 ## Quickstart
 
@@ -109,14 +112,35 @@ configured timeout into a multiple of itself.
 
 Interactions prefer the accessibility pattern that needs no focus and steals none —
 `InvokePattern` for a click, `ValuePattern` for typing — and fall back to the mouse and
-keyboard only when the provider has nothing to offer or fails the call.
+keyboard in three cases: the provider offers no such pattern, it offers one and fails the
+call, or it is the generic **MSAA proxy** speaking for a control whose owner never wrote
+a provider at all.
+
+That third case is the subtle one, and there the pattern is not even attempted. The proxy
+synthesises `Invoke` from a posted `BM_CLICK`; against an owner-drawn widget — every Tk
+button is one — that message reaches nothing, so the call returns cleanly, the
+application never hears about it, and a test passes having pressed nothing. `SetValue` on
+such a control is the same call into the same void, so typing goes the long way round
+instead — click the control, *then* send the keys, because a Tk widget owns focus within
+its toplevel through Tk's own model and Win32 focus on its child window is not focus at
+all. Reading is deliberately *not* gated that way: a name or a value the proxy serves out
+of an annotation store is the application's own word about itself, and only *acting*
+through the proxy is a guess.
+
+Framework matters more than the proxy marker does, and this was measured rather than
+assumed: WinForms is served by that same generic proxy, and its `Invoke` works. So a
+control is trusted when its `FrameworkId` names a toolkit that implements accessibility
+itself — `WinForm`, `WPF`, `XAML` and their kin — and distrusted when it does not, which
+is where Tk's `Win32` lands. A spec drives the WinForms fixture with a recording mouse
+and asserts it was never touched, so the rule cannot quietly widen.
 
 ## The Tkinter case, stated precisely
 
 It is often said that Tk exposes no accessibility tree. That is **not true**, and the
 truth matters for what this plugin can promise.
 
-Probed against the Tk fixture app in this repo:
+Probed against a **bare** Tk 8.6.15 window — one whose application does nothing about
+accessibility:
 
 - The toplevel **is** in the UIA tree, as a `WindowControl` with class `TkTopLevel` and
   the right title. Window-level UIA works fine — which is exactly what lets the OCR path
@@ -124,14 +148,76 @@ Probed against the Tk fixture app in this repo:
 - The button **is** in the tree, as a `ButtonControl` — with an **empty accessible
   name**.
 - The status label is exposed as an **`ImageControl`**, not a `TextControl`.
+- The entry is an anonymous `PaneControl` with no `ValuePattern` at all, so there is
+  nothing to read out of it and nothing to set.
 
-So the accurate statement is: **Tk exposes unnamed, mis-roled controls that no
-name-based query can reach.** There is structure there; there is just nothing to match
+So the accurate statement is: **by default, Tk exposes unnamed, mis-roled controls that
+no name-based query can reach.** There is structure there; there is just nothing to match
 on. `app.button("New Task")` cannot find that button through UIA no matter how the
 search is written, because the button has no name and the label has the wrong role.
 
-That is what the OCR fallback is for, and why it reads the window's pixels rather than
-trying harder against the tree.
+### And it is fixable, from inside the application
+
+"By default" is carrying real weight in that sentence. A Tk application can say who its
+widgets are, and Windows will carry it: MSAA lets a process annotate the accessible
+properties of its own windows through `IAccPropServices`, and UI Automation reads those
+annotations back out through a proxy that takes priority over the plain one.
+[`tk-uia`](../tk-uia) — a sibling project in this workspace, MIT, zero runtime
+dependencies — is one call:
+
+```python
+import tk_uia
+
+tk_uia.enable(root)
+```
+
+Read back through UIA **from a separate process**, after that call: `tk.Button` is a
+`ButtonControl` with a real name, `tk.Label` is a **`TextControl`** rather than an
+`ImageControl`, and `tk.Entry` is an **`EditControl` carrying a `ValuePattern` that did
+not previously exist** — annotating a role is not putting a label on an object, it
+changes which patterns the bridge offers for it at all. `app.textbox("Title")` and
+`app.text("task created")` work against Tk from that point on, and the journey at the top
+of this README runs **verbatim** against both the WinForms fixture app and the Tk one.
+
+Note what did **not** have to change for that: `_CONTROL_TYPE_FOR_ROLE`, the three-line
+table mapping `button → ButtonControl`, `text → TextControl` and `textbox → EditControl`,
+is byte for byte what it was. Tk became drivable by fixing the *application*, not by
+loosening the locator — and loosening it was never the cheaper option, because it does
+not work: widening `text` to accept `PaneControl` would match every anonymous themed
+widget in the window, and those have no name to match on either.
+
+Classic `tk`, never `ttk`. Measured across all fifteen themed widget types, every one of
+them arrives as an anonymous `PaneControl` and `ttk.Button` has no `InvokePattern` at
+all, so the modern-looking toolkit is the worse starting point. `tk-uia` annotates both
+families; the advice stands anyway.
+
+### What it still costs
+
+- **`Invoke` still lies, so a Tk click is a real mouse click.** An annotated Tk button
+  advertises an `InvokePattern` and a `DefaultAction` of "Press", and both are pretence:
+  measured against a click counter inside the application, `InvokePattern.Invoke()` and
+  `LegacyIAccessible.DoDefaultAction()` each return cleanly and fire nothing. pytest-uia
+  therefore refuses to *act* through a pattern the generic proxy is inventing, and uses
+  the mouse and the keyboard instead. The consequence is not free: a Tk suite is exposed
+  to the [refusal of synthetic input](#the-fallback-paths-depend-on-synthetic-mouse-input-and-that-can-be-refused)
+  described below, where a WinForms suite is not. Tk gains UIA's precision — roles, empty
+  text boxes, independence from fonts and themes and DPI — but not UIA's immunity to a
+  higher-integrity window holding the foreground.
+- **A Tk app you cannot modify is still an OCR case.** Annotation is in-process only.
+  Reaching for another process's window handle does not raise; it silently does nothing,
+  and can corrupt an annotation that process made for itself. `tk-uia`'s README documents
+  a narrow, names-only cross-process rescue and the warnings that come with it; here, the
+  pixel fallback is the supported answer.
+
+And all of this is temporary, deliberately. **TIP 733 is Final for Tk 9.1**:
+`win/tkWinAccessibility.c` is merged, MSAA-based, with the same role mapping and the same
+`<Map>` registration, so a Tk 9.1 application is accessible with nothing added. Tk 9.1 is
+in beta, with stable expected around **September 2026** — but CPython 3.13 and 3.14 bundle
+Tk 8.6.15, CPython 3.15 bundles Tk 9.0.4, and neither carries any of it, so the earliest
+bundled accessible Tk is realistically **CPython 3.16**. `tk_uia.enable()` already detects
+a Tk that answers for itself and stands down, and what pytest-uia does with such a window
+— whether the trust rule admits it automatically once the proxy is out of the picture — is
+an open question on the [ROADMAP](ROADMAP.md), unanswerable until Tk 9.1 is installable.
 
 ## Limitations you should know before adopting this
 
@@ -149,7 +235,7 @@ empty box itself, and the keystrokes then go wherever clicking that label put th
 Roles are honoured by UIA, and by UIA alone. If your app has an accessibility tree, this
 never bites you — the chain never reaches OCR.
 
-### The OCR path depends on synthetic mouse input, and that can be refused
+### The fallback paths depend on synthetic mouse input, and that can be refused
 
 This is the sharpest argument for UIA-first, and it was measured rather than reasoned
 about.
@@ -164,8 +250,13 @@ bad day — and no medium-integrity process can displace it. `SetForegroundWindo
 
 Throughout all of that, **UIA pattern calls, screen capture and OCR keep working
 perfectly.** Invoking a button through its accessibility pattern is a provider call, not
-an input event, so UIPI never sees it. Only the last-resort path — the mouse — is
-affected. That is the thesis of this project demonstrated by accident.
+an input event, so UIPI never sees it. What is affected is everything that ends in the
+mouse: a click on a phrase OCR located, and a click on a control the generic proxy speaks
+for on behalf of a toolkit that implements no accessibility of its own — a Tk widget,
+annotated or not. That is the thesis of this project
+demonstrated by accident, and it is also the honest cost of the Tk support above: a
+WinForms suite goes through patterns and is immune, a Tk suite injects real input and is
+not.
 
 pytest-uia handles it honestly rather than silently:
 
@@ -229,9 +320,9 @@ From the fixture apps in this repo, on a Windows 11 development machine:
 
 | | |
 |---|---|
-| OCR recognition, warm | **5–13 ms** per grab of a 460×240 window, across two sessions |
-| OCR recognition, first call in a process | 15–75 ms (WinRT engine creation) |
-| OCR accuracy on the Tk fixture | every word, every run — 12 pt Segoe UI, black on white |
+| OCR recognition, warm | **5–13 ms** per grab of a fixture window, across three sessions — most recently 8–12 ms against the 460×280 canvas fixture |
+| OCR recognition, first call in a process | 15–83 ms (WinRT engine creation) |
+| OCR accuracy on the canvas fixture | every word, every run — 12 pt Segoe UI, black on white |
 | UIA window readiness after launch | ~0.33 s |
 | Dominant cost of an OCR find | `uiautomation.SetActive()`'s unconditional `time.sleep(0.5)` |
 | A one-shot UIA miss under a real window | well under 1 s (a spec asserts this, to catch `uiautomation` retrying underneath) |
@@ -251,6 +342,7 @@ cd pytest-uia
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 uv pip install -e ".[dev,ocr]"     # or: pip install -e ".[dev,ocr]"
+uv pip install -e ..\tk-uia        # the sibling repo, cloned beside this one
 
 pytest -m "not gui" -q             # instant; no windows, runs on any platform
 pytest -m gui -q                   # drives real windows — hands off the mouse
@@ -260,11 +352,35 @@ ruff check src tests
 ruff format --check src tests
 ```
 
-The `gui` suite launches two fixture applications: a WinForms form (rich accessibility
-tree, standing in for a well-behaved native app) and a Tkinter window (unnamed,
-mis-roled controls, standing in for the ones that are not). The same journey runs
-against both, through one test body — `tests/test_hybrid_end_to_end.py` is the spec that
-justifies the whole design.
+`tk-uia` is a **test-time** dependency and nothing more: it is what the Tk fixture app
+calls to give its own widgets names and roles, so it belongs to the fixture rather than
+to the plugin. It is not on PyPI either, hence the path install. Without it, every spec
+that drives the Tk fixture skips with `install tk-uia` rather than failing — the app
+would otherwise die during its own imports and surface as a baffling thirty-second "no
+visible top-level window".
+
+The `gui` suite launches three fixture applications:
+
+- **`tests/fixture_apps/winforms_app.ps1`** — a WinForms form with the rich accessibility
+  tree it was born with, standing in for a well-behaved native app.
+- **`tests/fixture_apps/tk_app.py`** — classic Tk widgets, made findable by
+  `tk_uia.enable()`. It asserts that call returned `ANNOTATED` and exits if it did
+  not, because a version gate that mis-fired leaves every widget exactly as bare Tk
+  left it, and the specs would then be quietly measuring bare Tk.
+- **`tests/fixture_apps/tk_canvas_app.py`** — one `tk.Canvas` and `create_text`, exposing
+  **zero** UIA children, deliberately never annotated. It is the only window left that
+  the pixel path has to carry, and it exists so that OCR keeps real coverage.
+
+`tests/fixture_apps/legible.py` holds what the two Tk apps share: DPI awareness and the
+12 pt black-on-white that keeps OCR's job honest.
+
+The same journey runs against all three, and
+`tests/test_uia_hybrid_end_to_end.py` is the pair of specs that justifies the whole
+design. They assert **which link answered**, not merely that the journey passed: the
+pixel locator is wrapped in a counting decorator, and the count has to be `0` for both
+windows with an accessibility tree and greater than `0` for the canvas. Passing alone
+stopped being evidence the moment Tk became accessible — the old single spec went on
+passing under a parameter id that had become a lie.
 
 CI runs `pytest -m "not gui"` on {Ubuntu, Windows} × {3.10, 3.13}. The gui suite is
 **local-only in v1**: it needs an interactive desktop it owns, and hosted runners are an
@@ -280,6 +396,12 @@ src/pytest_uia/
 ├── domain/          # stdlib only — queries, the locator chain, waiting, text matching
 ├── adapters/        # uiautomation, comtypes, WinRT, mss, ctypes — nothing leaks past here
 └── application/     # composes the two; imports pytest nowhere
+
+tests/fixture_apps/
+├── winforms_app.ps1  # a full accessibility tree, and always had one
+├── tk_app.py         # classic Tk, given names and roles by `tk_uia.enable()`
+├── tk_canvas_app.py  # paint and nothing else: zero UIA children, never annotated
+└── legible.py        # the DPI awareness and 12 pt black-on-white both Tk apps share
 ```
 
 The layering is enforced by the Ubuntu CI lane: `domain/` and `application/` must import
