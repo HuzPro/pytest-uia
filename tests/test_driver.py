@@ -21,6 +21,7 @@ from pytest_uia.domain.errors import (
     TextNeverSettled,
 )
 from pytest_uia.domain.query import Query, Role
+from pytest_uia.domain.tree import DumpLimits, TreeNode, Walk
 from pytest_uia.domain.waiting import RetryPolicy
 
 NEW_TASK_BUTTON = Query(role=Role.BUTTON, name="New Task")
@@ -31,6 +32,8 @@ TASK_CREATED_LABEL = Query(role=Role.TEXT, name="task created")
 # on every step, which also sits on the window underneath it.
 CONFIRM = "Confirm"
 SETTINGS = "Settings"
+NEW_TASK = "New Task"
+FOLDER = "Folder"
 
 _DEFAULT_WAIT = RetryPolicy()
 
@@ -193,16 +196,30 @@ class ChainThatFindsOnAttempt:
         return RecordingControl()
 
 
+def _a_button(name: str) -> TreeNode:
+    return TreeNode(control_type="ButtonControl", name=name, depth=1, role=Role.BUTTON)
+
+
+def _a_textbox(name: str) -> TreeNode:
+    return TreeNode(control_type="EditControl", name=name, depth=1, role=Role.TEXTBOX)
+
+
 class FakeDialog:
     """Test double: a child window with a search of its own inside it."""
 
-    def __init__(self, title: str, contents: object) -> None:
+    def __init__(
+        self, title: str, contents: object, *, controls: Sequence[TreeNode] = ()
+    ) -> None:
         self.title = title
         self.contents = contents
         self.closes = 0
+        self._controls = tuple(controls)
 
     def dialog_titled(self, title: str) -> FakeDialog:
         raise DialogNotFound(f"no window titled {title!r} inside {self.title!r}")
+
+    def walk(self, limits: DumpLimits) -> Walk:
+        return Walk(nodes=(_the_window_control(self.title), *self._controls))
 
     def close(self) -> None:
         self.closes += 1
@@ -217,11 +234,16 @@ class FakeWindow:
         self.title = title
         self.closes = 0
         self.dialogs_looked_up: list[str] = []
+        self.limits_walked_with: list[DumpLimits] = []
         self._dialogs = {dialog.title: dialog for dialog in dialogs}
 
     def dialog_titled(self, title: str) -> FakeDialog:
         self.dialogs_looked_up.append(title)
         return self._whatever_is_open(title)
+
+    def walk(self, limits: DumpLimits) -> Walk:
+        self.limits_walked_with.append(limits)
+        return Walk(nodes=(_the_window_control(self.title),))
 
     def close(self) -> None:
         self.closes += 1
@@ -230,6 +252,27 @@ class FakeWindow:
         if title not in self._dialogs:
             raise DialogNotFound(f"no window titled {title!r} inside {self.title!r}")
         return self._dialogs[title]
+
+
+class WindowWithControls(FakeWindow):
+    """Test double: a window with something in it worth dumping."""
+
+    def __init__(
+        self,
+        *controls: TreeNode,
+        title: str = "Fixture",
+        dialogs: Sequence[FakeDialog] = (),
+    ) -> None:
+        super().__init__(title, dialogs=dialogs)
+        self._controls = controls
+
+    def walk(self, limits: DumpLimits) -> Walk:
+        self.limits_walked_with.append(limits)
+        return Walk(nodes=(_the_window_control(self.title), *self._controls))
+
+
+def _the_window_control(title: str) -> TreeNode:
+    return TreeNode(control_type="WindowControl", name=title, depth=0)
 
 
 class WindowAlreadyGone(FakeWindow):
@@ -1018,6 +1061,87 @@ def test_asking_whether_a_dialog_is_open_answers_rather_than_raising() -> None:
     # Then it gets something to assert on, not an exception to catch
     assert up is False, (
         "`assert not app.has_dialog(...)` has to be writable without try/except"
+    )
+
+
+def test_dumping_an_app_walks_the_window_it_was_launched_against() -> None:
+    # Given an app whose window holds a button, and a search that finds nothing
+    window = WindowWithControls(_a_button(NEW_TASK))
+    app = App(ChainThatNeverFinds(), window=window, process=FakeProcess())
+
+    # When the test dumps it
+    dump = app.dump()
+
+    # Then the dump is of that window's own controls. The locator chain is not
+    # consulted at all — a dump answers what is *there*, which is exactly the
+    # question a reader has when the chain has just failed them
+    assert 'app.button("New Task")' in dump.queries, (
+        f"the app must dump the window it was launched against: {dump.queries}"
+    )
+
+
+def test_dumping_a_dialog_walks_that_dialog_and_not_the_window_underneath_it() -> None:
+    # Given an app showing a settings dialog, each window with its own control
+    dialog = FakeDialog(SETTINGS, ChainThatNeverFinds(), controls=(_a_textbox(FOLDER),))
+    window = WindowWithControls(_a_button(NEW_TASK), dialogs=[dialog])
+    app = App(
+        ChainThatNeverFinds(), window=window, process=FakeProcess(), policy=_NO_PAUSE
+    )
+
+    # When the test dumps the dialog
+    dump = app.dialog(SETTINGS).dump()
+
+    # Then it covers exactly the subtree that dialog's own queries search, and
+    # no more. A dialog whose dump showed the window underneath would be
+    # describing a scope its `button` and `textbox` do not have
+    assert any(FOLDER in query for query in dump.queries), (
+        f"the dialog's own control is missing from its own dump: {dump.queries}"
+    )
+    assert not any(NEW_TASK in query for query in dump.queries), (
+        f"the dump reached past the dialog's edge, which is the ambiguity "
+        f"addressing a dialog by name exists to remove: {dump.queries}"
+    )
+
+
+def test_a_dialogs_dump_offers_its_controls_as_queries_scoped_to_that_dialog() -> None:
+    # Given an app showing a settings dialog with a box in it
+    dialog = FakeDialog(SETTINGS, ChainThatNeverFinds(), controls=(_a_textbox(FOLDER),))
+    window = WindowWithControls(_a_button(NEW_TASK), dialogs=[dialog])
+    app = App(
+        ChainThatNeverFinds(), window=window, process=FakeProcess(), policy=_NO_PAUSE
+    )
+
+    # When the test dumps the dialog
+    dump = app.dialog(SETTINGS).dump()
+
+    # Then the lines it hands back are scoped to the dialog. A reader who ran
+    # `dialog.dump()` is holding a Dialog, and an unscoped `app.textbox(...)`
+    # would teach them the very idiom that breaks the moment the next wizard
+    # step reuses the caption
+    assert dump.queries == ('app.dialog("Settings").textbox("Folder")',), (
+        f"a dump taken through a dialog has to answer in that dialog's own "
+        f"calls: {dump.queries}"
+    )
+
+
+def test_a_dump_passes_the_callers_limits_through_to_the_walk_instead_of_its_own() -> (
+    None
+):
+    # Given an app, and a caller who has read the truncation notice and wants
+    # the rest of a big window
+    window = WindowWithControls(_a_button(NEW_TASK))
+    app = App(ChainThatNeverFinds(), window=window, process=FakeProcess())
+    generously = DumpLimits(max_nodes=5000, budget=30.0)
+
+    # When the test dumps it with those limits
+    app.dump(limits=generously)
+
+    # Then the walk was given them. The notice tells a reader to raise the cap
+    # with exactly this call, and a limit that stopped at the driver would make
+    # that instruction a lie
+    assert window.limits_walked_with == [generously], (
+        f"the caller's limits have to reach the thing doing the work: "
+        f"{window.limits_walked_with}"
     )
 
 

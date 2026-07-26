@@ -13,6 +13,7 @@ from contextlib import suppress
 from dataclasses import replace
 from typing import Protocol, TypeVar
 
+from pytest_uia.domain.dump import Dump, dump_of
 from pytest_uia.domain.errors import (
     DialogNotFound,
     DialogStillOpen,
@@ -22,6 +23,7 @@ from pytest_uia.domain.errors import (
 )
 from pytest_uia.domain.locator import Element, Locator
 from pytest_uia.domain.query import Query, Role
+from pytest_uia.domain.tree import DEFAULT_LIMITS, DumpLimits, Walk
 from pytest_uia.domain.waiting import RetryPolicy, poll
 
 DEFAULT_POLICY = RetryPolicy()
@@ -183,6 +185,17 @@ class Window(Protocol):
     def close(self) -> None: ...
 
 
+class WindowTree(Protocol):
+    """The one thing a dump needs of a window: the controls under it.
+
+    Deliberately not folded into `Window`. That port is also depended on by the
+    session, which has no business with a dump, and a dump has no business with
+    `close()`.
+    """
+
+    def walk(self, limits: DumpLimits) -> Walk: ...
+
+
 class RunningProcess(Protocol):
     """The slice of a launched process the driver depends on."""
 
@@ -201,9 +214,32 @@ class ElementSource:
     point of `App.dialog`.
     """
 
-    def __init__(self, locator: Locator, policy: RetryPolicy = DEFAULT_POLICY) -> None:
+    def __init__(
+        self,
+        locator: Locator,
+        policy: RetryPolicy = DEFAULT_POLICY,
+        *,
+        tree: WindowTree,
+        inside_the_dialog: str = "",
+    ) -> None:
         self._locator = locator
         self._policy = policy
+        self._tree = tree
+        # The caption, not a rendered call: how a scope is spelled is the
+        # domain's business, and this layer has no quoting rules of its own.
+        self._inside_the_dialog = inside_the_dialog
+
+    def dump(self, *, limits: DumpLimits = DEFAULT_LIMITS) -> Dump:
+        """Every control in this window, and the query that would find each one.
+
+        Deliberately does not print. Printing from a library call is a side
+        effect a diagnostic should not have, and under pytest it would vanish
+        into captured output anyway — so `print(app.dump())` with `-s`, or the
+        failure message, or the command line.
+        """
+        return dump_of(
+            self._tree.walk(limits), inside_the_dialog=self._inside_the_dialog
+        )
 
     def button(self, name: str, *, timeout: float | None = None) -> UIElement:
         return self._element_for(Role.BUTTON, name, timeout)
@@ -237,7 +273,7 @@ class App(ElementSource):
         process: RunningProcess,
         policy: RetryPolicy = DEFAULT_POLICY,
     ) -> None:
-        super().__init__(locator, policy)
+        super().__init__(locator, policy, tree=window)
         self._window = window
         self._process = process
 
@@ -261,6 +297,9 @@ class App(ElementSource):
             dialog_window.contents,
             title=title,
             opened_over=self._window,
+            # The dialog's own window, never the one underneath: a dialog's
+            # dump has to cover exactly the subtree its own queries search.
+            tree=dialog_window,
             policy=self._policy,
         )
 
@@ -324,9 +363,10 @@ class Dialog(ElementSource):
         *,
         title: str,
         opened_over: Window,
+        tree: WindowTree,
         policy: RetryPolicy = DEFAULT_POLICY,
     ) -> None:
-        super().__init__(locator, policy)
+        super().__init__(locator, policy, tree=tree, inside_the_dialog=title)
         self._title = title
         self._opened_over = opened_over
 

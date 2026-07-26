@@ -176,6 +176,11 @@ class Dump:
     nodes: tuple[TreeNode, ...]
     ended: WalkEnded = WalkEnded.FINISHED
     limits: DumpLimits = DEFAULT_LIMITS
+    # The caption of the child window this dump was taken *through*, if any.
+    # A reader who ran `dialog.dump()` is holding a Dialog, and an unscoped
+    # `app.textbox(...)` would teach them the idiom that breaks the moment the
+    # next wizard step reuses the caption.
+    inside_the_dialog: str = _NO_DIALOG
 
     def __str__(self) -> str:
         return "\n".join(_the_page_of(self, _FOLDING_THE_CHROME))
@@ -188,7 +193,7 @@ class Dump:
         the rendered tree would pin column positions and break the next time a
         word changed; this is the promise, and the layout stays free to move.
         """
-        readings = _read(self.nodes)
+        readings = _read(self.nodes, self.inside_the_dialog)
         return tuple(
             _the_queries_of(readings, _how_many_controls_answer_each(readings))
         )
@@ -204,13 +209,18 @@ class Dump:
         return "\n".join(_the_page_of(self, _SHOWING_EVERY_CONTROL))
 
 
-def dump_of(walk: Walk) -> Dump:
+def dump_of(walk: Walk, *, inside_the_dialog: str = _NO_DIALOG) -> Dump:
     """Read a walk as a tree a person can act on."""
-    return Dump(nodes=walk.nodes, ended=walk.ended, limits=walk.limits)
+    return Dump(
+        nodes=walk.nodes,
+        ended=walk.ended,
+        limits=walk.limits,
+        inside_the_dialog=inside_the_dialog,
+    )
 
 
 def _the_page_of(dump: Dump, folding: _Folding) -> list[str]:
-    readings = _read(dump.nodes)
+    readings = _read(dump.nodes, dump.inside_the_dialog)
     answering = _how_many_controls_answer_each(readings)
     return [
         _the_header_over(readings, answering),
@@ -437,8 +447,8 @@ def _where_the_tails_start(heads: Sequence[str]) -> int:
     return min(max(len(head) for head in heads), _THE_WIDEST_COLUMN_WORTH_HAVING)
 
 
-def _read(nodes: Sequence[TreeNode]) -> list[_Reading]:
-    enclosing = _the_dialogs_enclosing_each(nodes)
+def _read(nodes: Sequence[TreeNode], inside_the_dialog: str) -> list[_Reading]:
+    enclosing = _the_dialogs_enclosing_each(nodes, inside_the_dialog)
     chrome = _which_are_window_chrome(nodes)
     return [
         _Reading(
@@ -487,19 +497,26 @@ def _what_it_folds(nodes: Sequence[TreeNode], at: int) -> tuple[str, ...]:
     return tuple(folded)
 
 
-def _the_dialogs_enclosing_each(nodes: Sequence[TreeNode]) -> list[tuple[str, ...]]:
+def _the_dialogs_enclosing_each(
+    nodes: Sequence[TreeNode], inside_the_dialog: str
+) -> list[tuple[str, ...]]:
     """Which child windows each control sits in, recovered with one stack.
 
     A pre-order walk makes this free: a dialog's frame stays on the stack until
     a node arrives at its depth or above, and everything seen in between is
     inside it.
+
+    A dump taken through a dialog seeds that stack with the dialog itself, so
+    the scoping rule needs no second case: every control in it is inside one
+    child window more than the tree alone would say.
     """
+    outermost = (inside_the_dialog,) if inside_the_dialog else ()
     open_dialogs: list[tuple[int, str]] = []
     enclosing: list[tuple[str, ...]] = []
     for node in nodes:
         while open_dialogs and open_dialogs[-1][0] >= node.depth:
             open_dialogs.pop()
-        enclosing.append(tuple(caption for _depth, caption in open_dialogs))
+        enclosing.append(outermost + tuple(caption for _depth, caption in open_dialogs))
         if _is_a_child_window(node):
             open_dialogs.append((node.depth, node.name))
     return enclosing

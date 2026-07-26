@@ -28,6 +28,7 @@ thread is a trap rather than an optimisation.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from importlib.util import find_spec
@@ -46,6 +47,13 @@ from pytest_uia.domain.errors import (
 )
 from pytest_uia.domain.locator import Locator, LocatorChain
 from pytest_uia.domain.query import Query, Role
+from pytest_uia.domain.tree import (
+    DEFAULT_LIMITS,
+    DumpLimits,
+    TreeNode,
+    Walk,
+    WalkEnded,
+)
 
 _TOP_LEVEL_WINDOWS = 1  # search depth: the desktop root's own children
 _LOOK_ONCE = 0  # maxSearchSeconds: waiting is poll()'s job, not the library's
@@ -75,6 +83,14 @@ _CONTROL_TYPE_FOR_ROLE = {
     Role.BUTTON: auto.ControlType.ButtonControl,
     Role.TEXT: auto.ControlType.TextControl,
     Role.TEXTBOX: auto.ControlType.EditControl,
+}
+
+# Derived rather than written out again, so that widening what a query can find
+# and widening what a dump offers a query for stay the same edit. A dump that
+# promised `app.button(...)` for a control type the locator does not search
+# would be handing out a line that cannot work.
+_ROLE_FOR_CONTROL_TYPE = {
+    control_type: role for role, control_type in _CONTROL_TYPE_FOR_ROLE.items()
 }
 
 
@@ -450,6 +466,78 @@ def _windows_ocr_is_installed() -> bool:
         return False
 
 
+def _the_controls_under(
+    window: auto.Control, limits: DumpLimits, trust: ProviderTrust = TRUSTED_PROVIDERS
+) -> Walk:
+    """Read the window's subtree in pre-order, and stop when a limit says so.
+
+    Eager, returning a tuple rather than a generator: the result is bounded by
+    construction, and a generator would hold a COM enumeration open across
+    arbitrary caller code and put the `COMError` translation on the consumer's
+    stack instead of at this boundary — which is the contract 0.4.1 fixed.
+    """
+    # Checked between controls, and it can be nothing else: a provider is
+    # inside a `GetFirstChildControl` call for as long as it likes, and nothing
+    # on this thread can interrupt it. Measured, `Program Manager` spends 4.1
+    # seconds in exactly one such call. The budget bounds the walk, not a call.
+    deadline = time.monotonic() + limits.budget
+    nodes: list[TreeNode] = []
+    ended = WalkEnded.FINISHED
+    for control, depth in _under(window):
+        if nodes and time.monotonic() >= deadline:
+            ended = WalkEnded.RAN_OUT_OF_TIME
+            break
+        if nodes and len(nodes) >= limits.max_nodes:
+            # One control too many is asked for and dropped, so "there are
+            # more" is something the walk saw rather than something it guessed.
+            # The window itself is exempt: the whole page is written relative
+            # to a root, and a dump with none would have no window to name.
+            ended = WalkEnded.HIT_THE_NODE_CAP
+            break
+        nodes.append(_read_as_a_node(control, depth, trust))
+    return Walk(nodes=tuple(nodes), ended=ended, limits=limits)
+
+
+def _under(window: auto.Control) -> Iterator[tuple[auto.Control, int]]:
+    return auto.WalkControl(window, includeTop=True)
+
+
+def _read_as_a_node(
+    control: auto.Control, depth: int, trust: ProviderTrust
+) -> TreeNode:
+    """One control, or the fact that it stopped answering for itself.
+
+    Caught per node rather than around the walk, because the two failures need
+    opposite reports. A window whose application has exited raises out of the
+    *iteration*, and there is nothing left to dump; a single control destroyed
+    while the dump was being taken raises out of a property read, and throwing
+    away the four hundred controls that did answer would be the worse answer of
+    the two. Dropping it silently would be worse still.
+    """
+    try:
+        return _everything_it_says_about_itself(control, depth, trust)
+    except COMError:
+        return TreeNode(control_type="", name="", depth=depth, readable=False)
+
+
+def _everything_it_says_about_itself(
+    control: auto.Control, depth: int, trust: ProviderTrust
+) -> TreeNode:
+    # No `GetPattern` anywhere. Measured, probing Invoke and Value costs
+    # 0.19 ms a node against 0.17 ms for the trust rule, and "does it advertise
+    # Invoke" is precisely the question that rule exists because you cannot
+    # believe the answer to.
+    return TreeNode(
+        control_type=control.ControlTypeName,
+        name=control.Name,
+        depth=depth,
+        role=_ROLE_FOR_CONTROL_TYPE.get(control.ControlType),
+        automation_id=control.AutomationId,
+        driven_by_the_mouse=not trust.acts_for_real(control),
+        offscreen=control.IsOffscreen,
+    )
+
+
 class UiaWindow:
     """Adapter presenting a top-level UIA control as a window under test.
 
@@ -476,6 +564,11 @@ class UiaWindow:
     @property
     def contents(self) -> LocatorChain:
         return self._contents
+
+    def walk(self, limits: DumpLimits = DEFAULT_LIMITS) -> Walk:
+        """Every control under this window, as far as the limits allow."""
+        with reporting_a_dead_window_as(WindowNotFound, self._control):
+            return _the_controls_under(self._control, limits)
 
     def dialog_titled(self, title: str) -> UiaWindow:
         """A window inside this one, searched exactly as this one is searched.
