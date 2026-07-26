@@ -226,7 +226,7 @@ def _the_page_of(dump: Dump, folding: _Folding) -> list[str]:
         _the_header_over(readings, answering),
         *_whether_a_limit_bit(dump),
         *_the_lines_of(readings, answering, folding),
-        *_the_legend_for(readings),
+        *_the_legend_for(readings, folding),
         "",
         *_the_queries_under(readings, answering),
     ]
@@ -270,16 +270,21 @@ _WHY_IT_STOPPED: dict[WalkEnded, Callable[[Dump], str]] = {
 }
 
 
-def _the_legend_for(readings: Sequence[_Reading]) -> list[str]:
+def _the_legend_for(readings: Sequence[_Reading], folding: _Folding) -> list[str]:
     """What the markers mean, said once, and only for markers that appear.
 
-    A paragraph about a marker no line carries sends a reader hunting the tree
-    for something that is not in it.
+    Keyed off what this rendering *shows*, not off the whole walk. The
+    motivating failure came from a real window: measured against the WinForms
+    fixture, every title-bar button answers to the trust rule and none of its
+    own controls do — so a legend counted over the walk put four lines about
+    `[mouse]` under a tree with no `[mouse]` anywhere in it, and sent the reader
+    hunting for something the fold had taken away.
     """
+    on_the_page = [reading for reading in readings if folding.shows(reading)]
     explained = [
         marker
         for marker in _MARKERS
-        if any(marker.applies_to(reading.node) for reading in readings)
+        if any(marker.applies_to(reading.node) for reading in on_the_page)
     ]
     if not explained:
         return []

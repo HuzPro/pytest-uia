@@ -622,6 +622,43 @@ def test_a_marker_nothing_in_the_dump_carries_is_not_explained_at_the_bottom_of_
     )
 
 
+def test_a_marker_only_the_folded_chrome_carries_is_explained_only_where_it_shows() -> (
+    None
+):
+    # Given the WinForms fixture as it really is: an application control this
+    # plugin drives through its patterns, under a title bar whose buttons the
+    # generic proxy speaks for
+    walk = _a_walk_of(
+        _a_window(WINFORMS_FIXTURE),
+        _a_control("ButtonControl", NEW_TASK, role=Role.BUTTON),
+        _a_control("TitleBarControl", "", depth=1),
+        _a_control(
+            "ButtonControl",
+            "Close",
+            depth=2,
+            role=Role.BUTTON,
+            driven_by_the_mouse=True,
+        ),
+    )
+
+    # When the dump is read both ways
+    folded = str(dump_of(walk))
+    everything = dump_of(walk).with_window_chrome()
+
+    # Then the folded rendering explains nothing, because it shows nothing
+    # marked. Measured against the real fixture: every title-bar button answers
+    # to the trust rule, so a legend keyed off the whole walk put four lines
+    # about `[mouse]` under a WinForms tree with no `[mouse]` anywhere in it
+    assert "[mouse]" not in folded, (
+        f"a legend about controls this rendering folded away sends the reader "
+        f"hunting a tree for something that is not in it:\n{folded}"
+    )
+    # and the rendering that does show them explains them
+    assert "[mouse]" in everything, (
+        f"the marker is on the page now, so its meaning has to be too:\n{everything}"
+    )
+
+
 def test_a_control_that_is_in_the_tree_but_off_screen_is_marked_as_such() -> None:
     # Given a control the window carries with no pixels of its own — a wizard
     # step not on this page yet, a panel behind a tab

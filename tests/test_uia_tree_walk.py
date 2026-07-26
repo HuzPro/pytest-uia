@@ -25,7 +25,7 @@ import pytest
 import uiautomation as auto
 from comtypes import COMError
 
-from pytest_uia.adapters.uia import UiaWindow
+from pytest_uia.adapters.uia import UiaWindow, visible_top_level_titles
 from pytest_uia.domain.errors import WindowNotFound
 from pytest_uia.domain.query import Role
 from pytest_uia.domain.tree import DumpLimits, WalkEnded
@@ -448,4 +448,48 @@ def test_a_control_that_stops_answering_mid_walk_is_reported_as_unreadable_rathe
     )
     assert walk.nodes[3].name == "Confirm", (
         f"everything after it is still there: {walk.nodes}"
+    )
+
+
+def test_the_captions_on_screen_leave_out_the_unnamed_the_hidden_and_the_nested() -> (
+    None
+):
+    # Given a desktop with four top-level windows on it, two of which no user
+    # could pick out by name, and one of which holds a window of its own
+    desktop = FakeControl(
+        "PaneControl",
+        "Desktop",
+        auto.ControlType.PaneControl,
+        children=(
+            FakeControl(
+                "WindowControl",
+                "Untitled - Notepad",
+                auto.ControlType.WindowControl,
+                children=(
+                    FakeControl(
+                        "WindowControl", "Find", auto.ControlType.WindowControl
+                    ),
+                ),
+            ),
+            FakeControl("WindowControl", "", auto.ControlType.WindowControl),
+            FakeControl(
+                "WindowControl",
+                "Left On A Hidden Desktop",
+                auto.ControlType.WindowControl,
+                offscreen=True,
+            ),
+            FakeControl(
+                "WindowControl", WINFORMS_FIXTURE, auto.ControlType.WindowControl
+            ),
+        ),
+    )
+
+    # When the command line asks what is on screen
+    captions = visible_top_level_titles(desktop)
+
+    # Then it is exactly the list a user could have typed after `--title`, and
+    # the same filter `resolve_main_window` already applies. A child dialog in
+    # that list would be a caption `--title` cannot match, offered as one it can
+    assert captions == ("Untitled - Notepad", WINFORMS_FIXTURE), (
+        f"the point of the list is that every line in it would have worked: {captions}"
     )

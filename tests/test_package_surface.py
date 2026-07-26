@@ -29,6 +29,15 @@ def test_the_package_exports_the_types_a_user_writes_a_conftest_against() -> Non
         "LaunchFailed",
         "ProcessStillRunning",
         "TextNeverSettled",
+        # A dump is a value object a test may annotate, tune and assert on, so
+        # all four names it takes or hands back belong on the surface: without
+        # `DumpLimits` the truncation notice names a call nobody can write, and
+        # without `WalkEnded` the `ended` it carries cannot be compared to
+        # anything.
+        "Dump",
+        "DumpLimits",
+        "TreeNode",
+        "WalkEnded",
     } <= exported, (
         f"the public surface hides names a user has to import anyway: {exported}"
     )

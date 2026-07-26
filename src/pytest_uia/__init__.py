@@ -9,6 +9,7 @@ wired to a real desktop, not before.
 
 from pytest_uia.application.driver import App, Dialog, UIElement
 from pytest_uia.application.session import GuiSession
+from pytest_uia.domain.dump import Dump
 from pytest_uia.domain.errors import (
     DialogNotFound,
     DialogStillOpen,
@@ -20,14 +21,17 @@ from pytest_uia.domain.errors import (
     WindowNotFound,
 )
 from pytest_uia.domain.query import Query, Role
+from pytest_uia.domain.tree import DumpLimits, TreeNode, WalkEnded
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 
 __all__ = [
     "App",
     "Dialog",
     "DialogNotFound",
     "DialogStillOpen",
+    "Dump",
+    "DumpLimits",
     "ElementNotFound",
     "GuiSession",
     "InputRefused",
@@ -36,7 +40,9 @@ __all__ = [
     "Query",
     "Role",
     "TextNeverSettled",
+    "TreeNode",
     "UIElement",
+    "WalkEnded",
     "WindowNotFound",
     "__version__",
 ]

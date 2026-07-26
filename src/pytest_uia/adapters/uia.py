@@ -208,6 +208,27 @@ def resolve_window_titled(title: str) -> auto.Control:
     return auto.Control.CreateControlFromElement(search.Element)
 
 
+def the_desktop() -> auto.Control:
+    """The root every top-level window hangs off."""
+    return auto.GetRootControl()
+
+
+def visible_top_level_titles(desktop: auto.Control) -> tuple[str, ...]:
+    """The captions on screen right now, for when an exact match found nothing.
+
+    The usual reason a `--title` misses is a caption that is close but not the
+    one on the title bar, and a list of what is actually there is the cheapest
+    possible answer to that. Filtered exactly as `resolve_main_window` filters
+    — named, and not offscreen — and one level deep, so that every line of it
+    is a caption `--title` would have matched.
+    """
+    return tuple(
+        control.Name
+        for control, _depth in auto.WalkControl(desktop, maxDepth=_TOP_LEVEL_WINDOWS)
+        if control.Name and not control.IsOffscreen
+    )
+
+
 def resolve_dialog_titled(window: auto.Control, title: str) -> auto.Control:
     """Find a child window of `window` by the caption on its own title bar.
 
