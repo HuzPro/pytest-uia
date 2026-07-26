@@ -15,6 +15,26 @@ class WindowNotFound(Exception):
     """A launched application owns no visible top-level window (yet)."""
 
 
+class LaunchFailed(Exception):
+    """The command a test launched was gone before it could own a window.
+
+    Deliberately not a WindowNotFound: that one means an application is still
+    starting and is worth waiting for, which is what a launch polls through.
+    This one means there is nothing left to wait for, so the whole ready
+    timeout would be spent proving something already settled — and the exit
+    code, which nobody was ever shown, is the entire diagnosis.
+    """
+
+
+class ProcessStillRunning(Exception):
+    """Every way of ending an application was tried, and it is still there.
+
+    Raised rather than returned from, because the alternative is the worst
+    outcome a teardown has: a window nobody expects on the next test's screen,
+    and no record anywhere of which run left it there.
+    """
+
+
 class DialogNotFound(Exception):
     """No window with the caption a test addressed is open inside the application.
 

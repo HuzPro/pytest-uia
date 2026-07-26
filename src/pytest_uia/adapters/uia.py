@@ -28,7 +28,8 @@ thread is a trap rather than an optimisation.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from importlib.util import find_spec
 from typing import Protocol
 
@@ -37,7 +38,12 @@ from comtypes import COMError
 
 from pytest_uia.adapters.input import WINDOWS_POINTER, PointerInput
 from pytest_uia.adapters.process_tree import process_family
-from pytest_uia.domain.errors import DialogNotFound, ElementNotFound, WindowNotFound
+from pytest_uia.domain.errors import (
+    DialogNotFound,
+    ElementNotFound,
+    InputRefused,
+    WindowNotFound,
+)
 from pytest_uia.domain.locator import Locator, LocatorChain
 from pytest_uia.domain.query import Query, Role
 
@@ -70,6 +76,85 @@ _CONTROL_TYPE_FOR_ROLE = {
     Role.TEXT: auto.ControlType.TextControl,
     Role.TEXTBOX: auto.ControlType.EditControl,
 }
+
+
+@contextmanager
+def reporting_a_dead_window_as(
+    absence: type[Exception], window: auto.Control
+) -> Iterator[None]:
+    """Translate the HRESULT a destroyed window answers with into a domain miss.
+
+    The motivating failure: an application that goes away mid-test — it
+    crashed, or the test's own click landed on Quit — leaves every control
+    under it holding a provider that is no longer there, and `comtypes` reports
+    each property access as a raw `COMError`. `exists()`, documented as
+    answering True or False for both directions of assertion, raised one; so
+    did `App.title`; and the retry loop built to absorb exactly this kind of
+    staleness never saw a domain error it recognised, so nothing retried and
+    nothing explained.
+
+    Shared with the OCR adapter, which grabs and clicks through the same window
+    control and dies in the same way.
+    """
+    try:
+        yield
+    except COMError as died:
+        raise absence(_the_window_is_gone(window)) from died
+
+
+def bring_to_the_front(window: auto.Control) -> None:
+    """Put the window under test in front, and refuse to go on if it stayed put.
+
+    `SetActive` answers whether `SetForegroundWindow` worked, and every caller
+    here used to throw that answer away. The foreground lock has entirely
+    ordinary reasons to bite — another application called
+    `LockSetForegroundWindow`, or simply got there first — with no integrity
+    level involved anywhere; the fixture apps dodge it with `-topmost` and a
+    user's application does not.
+
+    Carrying on regardless produces the two failures this project exists to
+    refuse. The mouse presses coordinates another application now owns, which
+    is a dropped click impersonating a delivered one. And a screen grab
+    photographs whatever is covering the window, after which OCR faithfully
+    reports "phrase not visible" about a phrase that is right there.
+
+    `InputRefused` because that is how a desktop that will not co-operate
+    already flows: the driver retries it inside the implicit wait, which is the
+    right answer for a foreground race, and reports it against the deadline
+    when it lasts.
+    """
+    if window.SetActive():
+        return
+    # Naming the window in the refusal is the discriminator rather than
+    # decoration. Measured: a window whose application has exited answers False
+    # here too, because its native handle has become 0 and `SetActive` declines
+    # a control it no longer considers top-level — and that needs the opposite
+    # report, since a foreground race is transient and an exited application is
+    # not. Reading the caption separates them, because a dead provider raises
+    # the HRESULT `reporting_a_dead_window_as` translates, and every caller of
+    # this function is inside one of those blocks.
+    raise InputRefused(_it_would_not_come_forward(window.Name))
+
+
+def _it_would_not_come_forward(name: str) -> str:
+    # A bare reason, not a sentence: the caller that owns the deadline prefixes
+    # it with how long it kept trying before giving up.
+    return (
+        f"Windows would not bring the window {name!r} to the front, so whatever "
+        "is covering it would have taken the click, or been photographed in "
+        "its place"
+    )
+
+
+def _the_window_is_gone(window: auto.Control) -> str:
+    # The caption is asked for defensively rather than read, because the only
+    # reason to be building this string is that something stopped answering —
+    # and the caption comes from the same provider that just refused.
+    try:
+        which = f" {window.Name!r} (pid {window.ProcessId})"
+    except COMError:
+        which = ""
+    return f"the window{which} is gone: the application behind it has exited"
 
 
 def resolve_main_window(pid: int) -> auto.Control:
@@ -119,17 +204,18 @@ def resolve_dialog_titled(window: auto.Control, title: str) -> auto.Control:
     Depth is left open, because how deeply a toolkit nests an owned window is
     the toolkit's business and not this function's.
     """
-    search = auto.Control(
-        searchFromControl=window,
-        ControlType=auto.ControlType.WindowControl,
-        Name=title,
-    )
-    if not search.Exists(maxSearchSeconds=_LOOK_ONCE):
-        raise DialogNotFound(
-            f"no window titled {title!r} inside {window.Name!r} "
-            f"(pid {window.ProcessId})"
+    with reporting_a_dead_window_as(DialogNotFound, window):
+        search = auto.Control(
+            searchFromControl=window,
+            ControlType=auto.ControlType.WindowControl,
+            Name=title,
         )
-    return auto.Control.CreateControlFromElement(search.Element)
+        if not search.Exists(maxSearchSeconds=_LOOK_ONCE):
+            raise DialogNotFound(
+                f"no window titled {title!r} inside {window.Name!r} "
+                f"(pid {window.ProcessId})"
+            )
+        return auto.Control.CreateControlFromElement(search.Element)
 
 
 def close_window(window: auto.Control) -> None:
@@ -154,14 +240,15 @@ class UiaLocator:
         self._pointer = pointer
 
     def find(self, query: Query) -> UiaElement:
-        control = auto.Control(
-            searchFromControl=self._window,
-            ControlType=_CONTROL_TYPE_FOR_ROLE[query.role],
-            Name=query.name,
-        )
-        if not control.Exists(maxSearchSeconds=_LOOK_ONCE):
-            raise ElementNotFound(self._nothing_matched())
-        return UiaElement(control, self._window, pointer=self._pointer)
+        with reporting_a_dead_window_as(ElementNotFound, self._window):
+            control = auto.Control(
+                searchFromControl=self._window,
+                ControlType=_CONTROL_TYPE_FOR_ROLE[query.role],
+                Name=query.name,
+            )
+            if not control.Exists(maxSearchSeconds=_LOOK_ONCE):
+                raise ElementNotFound(self._nothing_matched())
+            return UiaElement(control, self._window, pointer=self._pointer)
 
     def _nothing_matched(self) -> str:
         # LocatorChain prefixes this with the locator's own class name, so it
@@ -214,32 +301,36 @@ class UiaElement:
         self._trust = trust
 
     def click(self) -> None:
-        if self._invoked_through_the_pattern():
-            return
-        self._click_with_the_mouse()
+        with reporting_a_dead_window_as(ElementNotFound, self._window):
+            if self._invoked_through_the_pattern():
+                return
+            self._click_with_the_mouse()
 
     def type_text(self, text: str) -> None:
-        if self._set_through_the_value_pattern(text):
-            return
-        if self._trusts_its_provider():
-            self._type_into_the_control_the_tree_can_focus(text)
-            return
-        self._type_where_clicking_puts_the_caret(text)
+        with reporting_a_dead_window_as(ElementNotFound, self._window):
+            if self._set_through_the_value_pattern(text):
+                return
+            if self._trusts_its_provider():
+                self._type_into_the_control_the_tree_can_focus(text)
+                return
+            self._type_where_clicking_puts_the_caret(text)
 
     def read_text(self) -> str:
         # Deliberately ungated by provider trust. An untrusted provider can be
         # read but not driven: a property served out of an annotation store is
         # the application's own word for itself, and only the *actions* are
         # guesses about a control the proxy cannot really reach.
-        if self._holds_editable_text():
-            return self._whatever_the_value_pattern_holds()
-        return self._control.Name
+        with reporting_a_dead_window_as(ElementNotFound, self._window):
+            if self._holds_editable_text():
+                return self._whatever_the_value_pattern_holds()
+            return self._control.Name
 
     def is_visible(self) -> bool:
         # Being on-screen is not enough: a control can sit in the tree of a
         # painted window and still occupy no pixels at all.
-        rectangle = self._control.BoundingRectangle
-        return not self._control.IsOffscreen and not rectangle.isempty()
+        with reporting_a_dead_window_as(ElementNotFound, self._window):
+            rectangle = self._control.BoundingRectangle
+            return not self._control.IsOffscreen and not rectangle.isempty()
 
     def _holds_editable_text(self) -> bool:
         # An edit control's Name is its label ("Title"); what the user typed
@@ -279,7 +370,7 @@ class UiaElement:
     def _type_into_the_control_the_tree_can_focus(self, text: str) -> None:
         # Keystrokes land wherever the caret is, so the window has to be in
         # front first; SendKeys focuses the control itself.
-        self._window.SetActive()
+        bring_to_the_front(self._window)
         self._control.SendKeys(text, charMode=True)
 
     def _type_where_clicking_puts_the_caret(self, text: str) -> None:
@@ -293,7 +384,7 @@ class UiaElement:
     def _click_with_the_mouse(self) -> None:
         # The pointer hits whatever is on top, so the window has to be in front
         # before the control's own coordinates mean anything.
-        self._window.SetActive()
+        bring_to_the_front(self._window)
         # Not `Control.Click`, which discards Windows' answer: once the
         # accessibility tree has run out of patterns this is as exposed to a
         # foreground thief as an OCR-located click, and has to say so.
@@ -374,11 +465,13 @@ class UiaWindow:
 
     @property
     def title(self) -> str:
-        return self._control.Name
+        with reporting_a_dead_window_as(WindowNotFound, self._control):
+            return self._control.Name
 
     @property
     def pid(self) -> int:
-        return self._control.ProcessId
+        with reporting_a_dead_window_as(WindowNotFound, self._control):
+            return self._control.ProcessId
 
     @property
     def contents(self) -> LocatorChain:
@@ -394,7 +487,8 @@ class UiaWindow:
         return UiaWindow(resolve_dialog_titled(self._control, title))
 
     def close(self) -> None:
-        close_window(self._control)
+        with reporting_a_dead_window_as(WindowNotFound, self._control):
+            close_window(self._control)
 
 
 class UiaDesktop:

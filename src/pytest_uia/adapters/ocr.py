@@ -12,15 +12,24 @@ The concrete consequence: `app.textbox("Title")` resolved by OCR will match the
 typing then goes wherever clicking that label happens to put the caret. Roles
 are honoured by UIA, and by UIA alone.
 
-Recognition runs on the calling thread, inside `asyncio.run`. Should WinRT ever
-refuse the apartment comtypes has already put that thread in, the contingency
-is to run the recognise on a fresh joined worker thread that has never
-initialised COM, contained entirely within `WindowsOcrReader`.
+Recognition is handed to a fresh worker thread and waited for, which is the
+contingency this module's first version wrote down and did not need yet. Two
+constraints meet, and nothing on the calling thread satisfies both. `asyncio.run`
+refuses to start a second event loop on a thread that already has one, so every
+`pytest-asyncio` suite whose async test reached OCR got a bare `RuntimeError`
+about event loops out of a call with no visible connection to asyncio at all.
+And the WinRT operation's own blocking `get()` refuses to be called from a
+single-threaded apartment, which importing `uiautomation` has already put the
+calling thread into. A thread that has just been created has neither problem: no
+loop, and no apartment until something asks for one. Measured on a 460x280
+image, twenty rounds: 1.34 ms a recognition that way against 1.96 ms through
+`asyncio.run`, so the loop it no longer builds and tears down was costing more
+than the thread does.
 """
 
 from __future__ import annotations
 
-import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -41,6 +50,7 @@ from pytest_uia.adapters.capture import (
     ScreenRegion,
 )
 from pytest_uia.adapters.input import WINDOWS_POINTER, PointerInput
+from pytest_uia.adapters.uia import bring_to_the_front, reporting_a_dead_window_as
 from pytest_uia.domain.errors import ElementNotFound
 from pytest_uia.domain.query import Query
 from pytest_uia.domain.text_match import Box, Word, find_phrase
@@ -49,6 +59,10 @@ from pytest_uia.domain.text_match import Box, Word, find_phrase
 # as a bare reason rather than as a repetition of the query.
 _NOT_VISIBLE = "phrase not visible"
 
+# UIA runs on the calling thread and so does everything that leads here, so
+# there is never a second recognition wanting the pool at the same time.
+_ONE_RECOGNITION_AT_A_TIME = 1
+
 
 class OcrUnavailable(RuntimeError):
     """Windows itself cannot read text here, so no phrase could ever match.
@@ -56,6 +70,23 @@ class OcrUnavailable(RuntimeError):
     Deliberately not an ElementNotFound: the chain absorbs those and reports a
     missing element, which would blame the application for a machine that has
     no OCR language pack installed.
+    """
+
+
+class OcrTypingRefused(NotImplementedError):
+    """Typing into something located in pixels was asked for, and declined.
+
+    Deliberately not an ElementNotFound: the chain absorbs those and reports a
+    missing element, which would blame the application for a call this package
+    refuses to make.
+
+    Refused rather than attempted for the reason the roadmap gives: OCR sees
+    text and nothing else, so it cannot tell an input box from the label beside
+    it, and clicking the phrase before sending keys puts the caret wherever
+    clicking a *label* happens to put it. That is the same class of pretence as
+    an `Invoke` the generic MSAA proxy advertises and cannot honour — a call
+    that returns cleanly, reaches nothing anybody chose, and leaves a test
+    passing or failing for reasons unrelated to the application.
     """
 
 
@@ -69,7 +100,7 @@ class WindowsOcrReader:
     """Adapter presenting Windows.Media.Ocr as a reader of captured pixels."""
 
     def recognize(self, image: CapturedImage) -> list[Word]:
-        result = asyncio.run(_recognized(_engine(), _bitmap_of(image)))
+        result = _recognized(_bitmap_of(image))
         return [
             Word(text=word.text, box=_box_of(word.bounding_rect), line=index)
             for index, line in enumerate(result.lines)
@@ -104,8 +135,12 @@ class OcrLocator:
         self._pointer = pointer
 
     def find(self, query: Query) -> OcrElement:
-        region = self._region_of_the_window_in_front()
-        words = self._reader.recognize(self._capture.grab(region))
+        # A window that has died is the chain's *last* link reaching for a
+        # rectangle that no longer exists, and it raised a bare HRESULT where
+        # the whole point of this locator being last is that it reports a miss.
+        with reporting_a_dead_window_as(ElementNotFound, self._window):
+            region = self._region_of_the_window_in_front()
+            words = self._reader.recognize(self._capture.grab(region))
         box = find_phrase(words, query.name)
         if box is None:
             raise ElementNotFound(_NOT_VISIBLE)
@@ -118,8 +153,10 @@ class OcrLocator:
 
     def _region_of_the_window_in_front(self) -> ScreenRegion:
         # Nothing may overlap the window: a screen grab photographs whatever is
-        # on top, and OCR would then faithfully read the wrong application.
-        self._window.SetActive()
+        # on top, and OCR would then faithfully read the wrong application —
+        # which is why a window that would not come forward is refused rather
+        # than photographed anyway.
+        bring_to_the_front(self._window)
         return _region_of(self._window)
 
 
@@ -153,19 +190,27 @@ class OcrElement:
         self._pointer = pointer
 
     def click(self) -> None:
-        # The pointer hits whatever is on top, so the window has to be in front
-        # before a point measured inside it means anything.
-        self._window.SetActive()
-        # Not `uiautomation.Click`, which discards Windows' answer: a click the
-        # desktop refused has to be distinguishable from one the app ignored.
-        self._pointer.click(self._point.x, self._point.y)
+        with reporting_a_dead_window_as(ElementNotFound, self._window):
+            # The pointer hits whatever is on top, so the window has to be in
+            # front before a point measured inside it means anything.
+            bring_to_the_front(self._window)
+            # Not `uiautomation.Click`, which discards Windows' answer: a click
+            # the desktop refused has to be distinguishable from one the app
+            # ignored.
+            self._pointer.click(self._point.x, self._point.y)
 
     def type_text(self, text: str) -> None:
-        # Clicking is the only way to focus something OCR found: there is no
-        # value pattern to set, and no control to hand the caret to. Keystrokes
-        # land wherever clicking the words put it.
-        self.click()
-        auto.SendKeys(text, charMode=True)
+        # Clicking and then sending keys is the only thing this element could
+        # do, and it is not good enough to ship: see OcrTypingRefused.
+        raise OcrTypingRefused(
+            f"cannot type {text!r} into {self._phrase!r}: OCR reads text and "
+            "nothing else, so it cannot tell an input box from the label "
+            "beside it, and typing into what it matched would put the keys "
+            "wherever clicking those words happened to put the caret. Give "
+            "the box an accessible name so UIA can see it — for a Tk "
+            "application that is `tk_uia.enable(root)` — or type through an "
+            "element UIA located instead"
+        )
 
     def read_text(self) -> str:
         return self._phrase
@@ -196,11 +241,13 @@ def _region_of(window: auto.Control) -> ScreenRegion:
     )
 
 
-async def _recognized(engine: OcrEngine, bitmap: SoftwareBitmap) -> OcrResult:
-    # WinRT hands back an IAsyncOperation, which is awaitable but is not a
-    # coroutine; asyncio.run insists on one, so this is the wrapper that turns
-    # the former into the latter.
-    return await engine.recognize_async(bitmap)
+def _recognized(bitmap: SoftwareBitmap) -> OcrResult:
+    # Waited for on a thread of its own, for the two reasons in the module
+    # docstring: the calling thread may already be running an event loop, and
+    # it is certainly in the apartment `uiautomation` put it in. The worker is
+    # joined before this returns, so nothing outlives the call.
+    with ThreadPoolExecutor(max_workers=_ONE_RECOGNITION_AT_A_TIME) as worker:
+        return worker.submit(lambda: _engine().recognize_async(bitmap).get()).result()
 
 
 def _engine() -> OcrEngine:

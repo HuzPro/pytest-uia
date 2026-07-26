@@ -203,13 +203,38 @@ class ProxiedTextBox:
 
 
 class RecordingWindow:
-    """Test double: a window that remembers being brought to the front."""
+    """Test double: a window that remembers being brought to the front.
+
+    Answers True the way `SetActive` does when `SetForegroundWindow` worked —
+    the answer is the whole point of asking, and a double that returned nothing
+    would stand for a window whose position on screen is unknown.
+    """
 
     def __init__(self) -> None:
         self.activations = 0
 
-    def SetActive(self) -> None:
+    def SetActive(self) -> bool:
         self.activations += 1
+        return True
+
+
+class WindowThatStaysBehind:
+    """Test double: a window Windows would not bring to the front.
+
+    Nothing exotic about it. The foreground lock bites for entirely ordinary
+    reasons — another application called `LockSetForegroundWindow`, or simply
+    got there first — with no integrity level involved, and `SetActive` then
+    answers False having done nothing.
+
+    It still answers for its own caption, which is what tells it apart from a
+    window whose application has exited: that one declines to come forward too,
+    and raises rather than naming itself.
+    """
+
+    Name = "pytest-uia WinForms Fixture"
+
+    def SetActive(self) -> bool:
+        return False
 
 
 class RecordingPointer:
@@ -378,6 +403,45 @@ def test_a_mouse_fallback_the_desktop_refuses_is_reported_not_swallowed() -> Non
 
     # Then the caller can retry, exactly as it does for an OCR-located click:
     # the accessibility tree protects Invoke, not the mouse behind it
+
+
+def test_a_click_aimed_at_a_window_that_will_not_come_forward_is_refused() -> None:
+    # Given a control with no pattern to invoke, in a window Windows keeps
+    # behind whatever is currently in front
+    pointer = RecordingPointer()
+    element = UiaElement(PatternlessControl(), WindowThatStaysBehind(), pointer=pointer)
+
+    # When the test clicks it
+    with pytest.raises(InputRefused):
+        element.click()
+
+    # Then the mouse was never aimed at coordinates another application now
+    # owns. The refusal is the same class the driver already retries, which is
+    # the point: a foreground steal that loses a race is transient, and a click
+    # delivered to the window covering this one is not recoverable at all
+    assert pointer.clicks == [], (
+        "a click on a window that is not in front presses whatever covers it, "
+        "which is precisely the misdirected input this project refuses to let "
+        "pass for a delivered one"
+    )
+
+
+def test_typing_into_a_window_that_will_not_come_forward_is_refused() -> None:
+    # Given a control whose provider offers no value pattern, in a window
+    # Windows keeps behind whatever is currently in front
+    control = PatternlessControl()
+    element = UiaElement(control, WindowThatStaysBehind())
+
+    # When the test types into it
+    with pytest.raises(InputRefused):
+        element.type_text(_A_DRAFT)
+
+    # Then the keys were never sent, because they land wherever the caret is
+    # and the caret is in somebody else's window
+    assert control.typed == [], (
+        "keystrokes go to whatever window is in front, so typing into one that "
+        "would not come forward types into another application"
+    )
 
 
 def test_typing_into_a_control_with_no_value_pattern_falls_back_to_the_keyboard() -> (
