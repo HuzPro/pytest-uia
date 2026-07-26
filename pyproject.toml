@@ -44,6 +44,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["ruff==0.16.*"]
 
+[project.entry-points.pytest11]
+uia = "pytest_uia.plugin"
+
 [project.urls]
 Homepage = "https://github.com/HuzPro/pytest-uia"
 Documentation = "https://github.com/HuzPro/pytest-uia#readme"
@@ -59,9 +62,8 @@ packages = ["src/pytest_uia"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = [
-    "gui: spawns and drives real windows on the local desktop (deselect with '-m \"not gui\"')",
-]
+# The `gui` marker is registered by the plugin itself (pytest_uia.hooks), so a
+# project using pytest-uia gets it without adding anything to its own ini file.
 
 [tool.ruff]
 target-version = "py310"

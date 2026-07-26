@@ -27,6 +27,7 @@ import uiautomation as auto
 from comtypes import COMError
 
 from pytest_uia.domain.errors import ElementNotFound, WindowNotFound
+from pytest_uia.domain.locator import LocatorChain
 from pytest_uia.domain.query import Query, Role
 
 _TOP_LEVEL_WINDOWS = 1  # search depth: the desktop root's own children
@@ -54,6 +55,14 @@ def resolve_main_window(pid: int) -> auto.Control:
     # A search hands back a bare Control wrapper. The window's real class — and
     # with it SetActive, which only top-level controls have — comes from asking
     # the element what it actually is.
+    return auto.Control.CreateControlFromElement(search.Element)
+
+
+def resolve_window_titled(title: str) -> auto.Control:
+    """Find a visible top-level window by the caption on its title bar."""
+    search = auto.Control(searchDepth=_TOP_LEVEL_WINDOWS, Name=title)
+    if not search.Exists(maxSearchSeconds=_LOOK_ONCE):
+        raise WindowNotFound(f"no visible top-level window titled {title!r}")
     return auto.Control.CreateControlFromElement(search.Element)
 
 
@@ -164,3 +173,43 @@ def _owned_and_on_screen(pid: int) -> Callable[[auto.Control, int], bool]:
         return control.ProcessId == pid and not control.IsOffscreen
 
     return matches
+
+
+class UiaWindow:
+    """Adapter presenting a top-level UIA control as a window under test.
+
+    Owns the chain that searches inside it, which is why the chain is built
+    here rather than in the session: this is the only object that knows what
+    the window actually is.
+    """
+
+    def __init__(self, control: auto.Control) -> None:
+        self._control = control
+        # The single place the locator strategy is decided: an OCR link for
+        # windows with no accessibility tree joins this chain behind UIA.
+        self._contents = LocatorChain([UiaLocator(control)])
+
+    @property
+    def title(self) -> str:
+        return self._control.Name
+
+    @property
+    def pid(self) -> int:
+        return self._control.ProcessId
+
+    @property
+    def contents(self) -> LocatorChain:
+        return self._contents
+
+    def close(self) -> None:
+        close_window(self._control)
+
+
+class UiaDesktop:
+    """Adapter presenting the Windows desktop as the session's window source."""
+
+    def window_of_process(self, pid: int) -> UiaWindow:
+        return UiaWindow(resolve_main_window(pid))
+
+    def window_titled(self, title: str) -> UiaWindow:
+        return UiaWindow(resolve_window_titled(title))

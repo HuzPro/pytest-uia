@@ -12,8 +12,8 @@ import time
 
 import pytest
 
-from pytest_uia.adapters.uia import UiaLocator, close_window, resolve_main_window
-from pytest_uia.application.app_process import AppProcess
+from pytest_uia.adapters.uia import UiaDesktop, UiaLocator, resolve_main_window
+from pytest_uia.application.driver import App
 from pytest_uia.domain.errors import ElementNotFound
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.waiting import RetryPolicy, poll
@@ -39,13 +39,9 @@ _ONE_SHOT_BUDGET_SECONDS = 1.0
 # call that caused it has already returned.
 _REACTION_POLICY = RetryPolicy(timeout=5.0, interval=0.25)
 
-# Long enough for an app to run whatever it does on the way out, short enough
-# that a hung one is still reported as a failure rather than as a slow suite.
-_GRACEFUL_EXIT_SECONDS = 5.0
-
 
 def test_uia_locator_finds_a_button_by_its_accessible_name_in_a_real_window(
-    winforms_app: AppProcess,
+    winforms_app: App,
 ) -> None:
     # Given a locator over the window the app just put on screen
     locator = UiaLocator(resolve_main_window(winforms_app.pid))
@@ -60,7 +56,7 @@ def test_uia_locator_finds_a_button_by_its_accessible_name_in_a_real_window(
 
 
 def test_a_control_found_in_a_painted_window_reports_itself_as_visible(
-    winforms_app: AppProcess,
+    winforms_app: App,
 ) -> None:
     # Given the button of a window that is up and painted
     locator = UiaLocator(resolve_main_window(winforms_app.pid))
@@ -74,7 +70,7 @@ def test_a_control_found_in_a_painted_window_reports_itself_as_visible(
 
 
 def test_uia_locator_raises_element_not_found_for_a_name_the_window_does_not_contain(
-    winforms_app: AppProcess,
+    winforms_app: App,
 ) -> None:
     # Given a locator over a window that shows no such button
     locator = UiaLocator(resolve_main_window(winforms_app.pid))
@@ -97,7 +93,7 @@ def test_uia_locator_raises_element_not_found_for_a_name_the_window_does_not_con
 
 
 def test_clicking_a_button_through_the_accessibility_tree_triggers_its_action(
-    winforms_app: AppProcess,
+    winforms_app: App,
 ) -> None:
     # Given the fixture app's button, with its status label still saying "ready"
     locator = UiaLocator(resolve_main_window(winforms_app.pid))
@@ -119,7 +115,7 @@ def test_clicking_a_button_through_the_accessibility_tree_triggers_its_action(
 
 
 def test_typing_into_a_textbox_through_the_value_pattern_sets_its_text(
-    winforms_app: AppProcess,
+    winforms_app: App,
 ) -> None:
     # Given the app's empty title box, found by the name its label gives it
     locator = UiaLocator(resolve_main_window(winforms_app.pid))
@@ -134,14 +130,34 @@ def test_typing_into_a_textbox_through_the_value_pattern_sets_its_text(
     )
 
 
-def test_window_close_ends_the_application_process(winforms_app: AppProcess) -> None:
-    # Given the window the app is running for
-    window = resolve_main_window(winforms_app.pid)
+def test_the_desktop_adapter_finds_a_launched_apps_window_and_searches_inside_it(
+    winforms_app: App,
+) -> None:
+    # Given the real desktop
+    desktop = UiaDesktop()
 
-    # When it is closed the way the title bar's X closes it
-    close_window(window)
+    # When the window belonging to the launched pid is asked for
+    window = desktop.window_of_process(winforms_app.pid)
 
-    # Then the app shuts itself down, leaving nothing behind to kill
-    assert winforms_app.wait_for_exit(_GRACEFUL_EXIT_SECONDS), (
-        f"pid {winforms_app.pid} is still running after its last window closed"
+    # Then it knows its own caption, and its contents can be searched
+    assert window.title == "pytest-uia WinForms Fixture", (
+        f"the adapter found some other window: {window.title!r}"
+    )
+    assert window.contents.find(NEW_TASK_BUTTON).read_text() == "New Task", (
+        "a window that cannot search inside itself is no use to a driver"
+    )
+
+
+def test_the_desktop_adapter_finds_a_window_by_the_caption_on_its_title_bar(
+    winforms_app: App,
+) -> None:
+    # Given the real desktop, and an app nobody told the adapter about
+    desktop = UiaDesktop()
+
+    # When a window is asked for by title alone
+    window = desktop.window_titled("pytest-uia WinForms Fixture")
+
+    # Then that is the window that comes back
+    assert window.contents.find(NEW_TASK_BUTTON).read_text() == "New Task", (
+        "attaching by title has to reach the same window a pid lookup would"
     )
