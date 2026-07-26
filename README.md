@@ -363,7 +363,7 @@ cd pytest-uia
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 uv pip install -e ".[dev,ocr]"     # or: pip install -e ".[dev,ocr]"
-uv pip install -e ..\tk-uia        # the sibling repo, cloned beside this one
+uv pip install -e ..\tk-uia        # the sibling repo (>= 0.2.0), cloned beside this one
 
 pytest -m "not gui" -q             # instant; no windows, runs on any platform
 pytest -m gui -q                   # drives real windows — hands off the mouse
@@ -380,6 +380,12 @@ that drives the Tk fixture skips with `install tk-uia` rather than failing — t
 would otherwise die during its own imports and surface as a baffling thirty-second "no
 visible top-level window".
 
+**Two consequences of that being a skip rather than a failure.** A full run can go green
+with the entire Tk half unexercised, and only the skip count says so — so read it. And
+because nothing declares the dependency, nothing enforces the version either: the fixture
+app calls `bind_value_variable`, added in **tk-uia 0.2.0**, so an older sibling fails at
+that line instead of skipping cleanly.
+
 The `gui` suite launches three fixture applications:
 
 - **`tests/fixture_apps/winforms_app.ps1`** — a WinForms form with the rich accessibility
@@ -387,7 +393,10 @@ The `gui` suite launches three fixture applications:
 - **`tests/fixture_apps/tk_app.py`** — classic Tk widgets, made findable by
   `tk_uia.enable()`. It asserts that call returned `ANNOTATED` and exits if it did
   not, because a version gate that mis-fired leaves every widget exactly as bare Tk
-  left it, and the specs would then be quietly measuring bare Tk.
+  left it, and the specs would then be quietly measuring bare Tk. `enable()` names
+  what a widget can be named from; the app supplies the rest, which is the honest
+  shape of the work — the entry has no `-text` to infer a name from, and neither
+  its value nor the status line's text follows the widget on its own.
 - **`tests/fixture_apps/tk_canvas_app.py`** — one `tk.Canvas` and `create_text`, exposing
   **zero** UIA children, deliberately never annotated. It is the only window left that
   the pixel path has to carry, and it exists so that OCR keeps real coverage.

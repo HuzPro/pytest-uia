@@ -16,6 +16,12 @@ One call for the wait every asynchronous GUI forces on its tests.
   look. Timing out raises `TextNeverSettled` — the element was found, its text
   never settled — carrying both what it read and what was expected.
 
+- **The scaffolding it replaced was deleted**, and the Tk fixture app took up
+  `tk-uia`'s new `bind_value_variable` in place of a hand-written variable
+  trace. Between them the fixture and its spec lost 72 lines and gained 18. One
+  consequence for anyone running the gui suite: the Tk specs now need
+  **tk-uia >= 0.2.0**.
+
 ## Shipped in v0.2
 
 Tkinter driven through the accessibility tree rather than through its pixels,

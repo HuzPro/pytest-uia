@@ -11,8 +11,8 @@ suite's own hand-rolled poll and becomes one call on the driver.
   the most ordinary race in desktop testing — type into a box, assert on it in
   the next line, and read the value the box held before the keys arrived. v0.2
   gave a test `read_text()` and no way to wait on it, so the only way through
-  was to build the affordance yourself, and **this repo's own specs are the
-  evidence**: `tests/test_uia_tk_end_to_end.py` carries a `StillCatchingUp`
+  was to build the affordance yourself, and **this repo's own specs were the
+  evidence**: `tests/test_uia_tk_end_to_end.py` carried a `StillCatchingUp`
   exception, a `_once_the_tree_has_caught_up` helper and a hand-built
   `RetryPolicy` fed to `poll`, twelve lines of scaffolding to express one
   sentence. That sentence is now `app.textbox("Title").wait_until_text_is("Buy
@@ -43,11 +43,26 @@ suite's own hand-rolled poll and becomes one call on the driver.
   no sleeps anywhere in it, and the unit specs that pin its retrying run against
   a fake clock in milliseconds.
 
-- **The existing `StillCatchingUp` helper is deliberately still there.** The Tk
-  spec that hand-rolls the race is untouched, and a new spec beside it drives
-  the same journey through `wait_until_text_is`. Deleting the old one is a
-  separate change, so that this one is only ever measured against a spec that
-  was already passing.
+- **The scaffolding it replaced is gone, and it was hiding a bug.** The new
+  method was added first and measured against the hand-rolled spec while that
+  spec still passed, so the two were never confused; the deletion followed. It
+  is not only tidying: `_once_the_tree_has_caught_up` re-read *the same
+  `Element` object* on every attempt instead of resolving through the chain, so
+  against a window that rebuilt its controls it would have polled a stale
+  object to the deadline and then blamed the application. That left two specs
+  proving one journey by different means, and the one kept goes through the
+  fluent element a reader's own suite would write, which exercises the chain
+  and the adapter underneath it anyway.
+
+- **The Tk fixture app keeps its accessible value in step with one call.**
+  `tk-uia` 0.2.0 added `bind_value_variable`, so the closure, the `trace_add`
+  and the easily-forgotten priming call that kept an entry's announced value
+  truthful became a single line. Together with the deletion above, the fixture
+  and its spec lost 72 lines and gained 18. Both changes were checked for being
+  load-bearing rather than merely green: with the binding removed, the journey
+  fails `TextNeverSettled: Textbox 'Title' — reads '', not 'Write the report'`.
+  Note this raises the floor on the sibling: the Tk specs now need **tk-uia
+  ≥ 0.2.0**, and without it installed they skip rather than fail.
 
 ## 0.2.0 — 2026-07-26
 
