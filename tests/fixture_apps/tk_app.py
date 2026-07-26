@@ -42,8 +42,6 @@ TASK_CREATED = "task created"
 # change for whoever locates by it.
 NEW_TASK_NUMBER = 4207
 
-_A_WRITE = "write"
-
 
 @dataclass(frozen=True)
 class Widgets:
@@ -135,23 +133,14 @@ def _the_things_no_widget_can_say_for_itself(widgets: Widgets) -> None:
     # — exactly as the WinForms fixture sets `AccessibleName` on its own
     # textbox, and for exactly the same reason.
     tk_uia.set_acc_name(widgets.title_entry, TITLE)
-    _an_entry_that_keeps_saying_what_is_in_it(widgets)
+    # A name and a value are different properties, and neither follows the
+    # widget on its own. Without this the box would announce the name "Title"
+    # and an empty value forever, however much was typed into it.
+    tk_uia.bind_value_variable(widgets.title_entry, widgets.draft)
     # A label showing a `textvariable` has no `-text` of its own either, and it
     # is the one widget here whose entire job is to report what just happened.
     tk_uia.bind_text_variable(widgets.status_label, widgets.status)
     tk_uia.set_automation_id(widgets.new_task, NEW_TASK_NUMBER)
-
-
-def _an_entry_that_keeps_saying_what_is_in_it(widgets: Widgets) -> None:
-    # What a client reads out of an edit control is its *value*, and nothing
-    # updates that on the application's behalf. Without this the box would
-    # announce the name "Title" and an empty value forever, however much was
-    # typed into it.
-    def announce_what_was_typed(*_: object) -> None:
-        tk_uia.set_acc_value(widgets.title_entry, widgets.draft.get())
-
-    widgets.draft.trace_add(_A_WRITE, announce_what_was_typed)
-    announce_what_was_typed()
 
 
 if __name__ == "__main__":
