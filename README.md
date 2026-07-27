@@ -113,12 +113,14 @@ is using. A launched one always is.
 | `gui.attach(title=..., timeout=10.0)` | Take a handle on a window already on screen, by its caption. |
 | `app.button(name)` / `app.textbox(name)` / `app.text(value)` | An element, resolved lazily and re-resolved on every interaction. |
 | `app.tab(name)` | One tab of a notebook; `click()` selects it. A notebook unmaps every page but the open one, so this is what a test reaches before anything behind it. |
+| `app.checkbox` / `radio` / `slider` / `spinbox` / `combobox` / `listbox` / `tree` / `progressbar` / `scrollbar` / `group` / `image` / `split_button` / `separator` / `thumb` / `tab_strip` | The rest of the controls, one call each. A `listbox` and a `tree` are findable; their *rows* are not — see the caveats. |
+| `element.is_checked()` | Whether a checkbox or radio button is on. A read, so it works through the MSAA proxy that cannot be *driven*. Anything with no toggle state answers `False`. |
 | `element.click()` / `.type_text(s)` / `.read_text()` | Act on it, or read it. |
 | `element.exists(timeout=None)` | `True`/`False` instead of an exception, for both directions of assertion. Two things still raise through it — see [what `exists()` does not absorb](#what-exists-does-not-absorb). |
 | `element.wait_visible(timeout=None)` | Block until it is actually painted, then return itself so a call can follow. |
 | `element.wait_until_text_is(expected, timeout=None)` | Block until it reads exactly `expected`, then return itself so a call can follow. |
 | `app.dialog(title, timeout=None)` | Wait for a child window and return a `Dialog` whose queries stop at that window's edge. |
-| `dialog.button(name)` / `.textbox(name)` / `.text(value)` / `.tab(name)` | Exactly what an `App`'s are, answered inside the dialog only. |
+| `dialog.button(name)` / `.textbox(name)` / … | Every query an `App` has, answered inside the dialog only. |
 | `dialog.wait_closed(timeout=None)` | Block until the application has taken the dialog off screen. |
 | `app.has_dialog(title, timeout=None)` | `True`/`False` instead of an exception, the way `element.exists()` is. |
 | `app.close()` / `app.pid` / `app.title` | End it, or ask about it. |

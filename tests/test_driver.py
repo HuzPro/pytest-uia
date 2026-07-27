@@ -61,6 +61,7 @@ class RecordingControl:
     def __init__(self) -> None:
         self.clicks = 0
         self.typed: list[str] = []
+        self.checked = False
 
     def click(self) -> None:
         self.clicks += 1
@@ -70,6 +71,9 @@ class RecordingControl:
 
     def read_text(self) -> str:
         return "New Task"
+
+    def is_checked(self) -> bool:
+        return self.checked
 
     def is_visible(self) -> bool:
         return True
@@ -363,6 +367,50 @@ def _app_whose_window_is(window: FakeWindow, policy: RetryPolicy = _NO_PAUSE) ->
     )
 
 
+# Every role added in 0.7.0: the enum member, the control type the UIA adapter
+# maps it to, and the call a test writes. One list, because the three have to
+# agree — a query nobody can spell is as useless as a control type nobody asks
+# for, and they drift the moment they live in three places.
+EVERY_ROLE_A_TEST_CAN_ASK_FOR = [
+    ("CHECKBOX", "CheckBoxControl", "checkbox"),
+    ("RADIO", "RadioButtonControl", "radio"),
+    ("SLIDER", "SliderControl", "slider"),
+    ("SPINBOX", "SpinnerControl", "spinbox"),
+    ("COMBOBOX", "ComboBoxControl", "combobox"),
+    ("LISTBOX", "ListControl", "listbox"),
+    ("TREE", "TreeControl", "tree"),
+    ("PROGRESSBAR", "ProgressBarControl", "progressbar"),
+    ("SCROLLBAR", "ScrollBarControl", "scrollbar"),
+    ("GROUP", "GroupControl", "group"),
+    ("IMAGE", "ImageControl", "image"),
+    ("SPLIT_BUTTON", "SplitButtonControl", "split_button"),
+    ("SEPARATOR", "SeparatorControl", "separator"),
+    ("THUMB", "ThumbControl", "thumb"),
+    ("TAB_STRIP", "TabControl", "tab_strip"),
+]
+
+
+@pytest.mark.parametrize(
+    ("member", "_control_type", "call"), EVERY_ROLE_A_TEST_CAN_ASK_FOR
+)
+def test_each_kind_of_control_is_asked_for_by_a_call_named_after_it(
+    member: str, _control_type: str, call: str
+) -> None:
+    # Given an application whose window holds one of every kind of control
+    chain = ChainThatFinds(RecordingControl())
+    app = _app_looking_things_up_in(chain)
+
+    # When the test asks for one by the name it carries
+    getattr(app, call)("Quantity").click()
+
+    # Then it was looked up as that kind. Every one of these was announced
+    # correctly to a screen reader and unreachable from a test until now: a
+    # control type with no role to ask for it is findable by nothing.
+    assert chain.queries == [Query(role=Role[member], name="Quantity")], (
+        f"app.{call}(...) asked for {chain.queries}"
+    )
+
+
 def test_asking_for_a_notebook_tab_searches_for_a_tab_rather_than_a_button() -> None:
     # Given an application whose window has a notebook in it
     chain = ChainThatFinds(RecordingControl())
@@ -378,6 +426,37 @@ def test_asking_for_a_notebook_tab_searches_for_a_tab_rather_than_a_button() -> 
     assert chain.queries == [Query(role=Role.TAB, name="Database")], (
         f"asked for {chain.queries}"
     )
+
+
+def test_reading_whether_a_checkbox_is_checked_asks_the_control_it_resolves_to() -> (
+    None
+):
+    # Given a checkbox that is currently on
+    control = RecordingControl()
+    control.checked = True
+    checkbox = UIElement(
+        Query(role=Role.CHECKBOX, name="Notify me"), ChainThatFinds(control)
+    )
+
+    # When the test asks whether it is checked
+    # Then it answers from the control, not from what the test last did to it.
+    # A suite that clicked and assumed is a suite that passes when the click
+    # went nowhere — which on Tk it silently can.
+    assert checkbox.is_checked() is True
+
+
+def test_a_checkbox_that_is_not_checked_says_so_rather_than_raising() -> None:
+    # Given a checkbox that is off
+    control = RecordingControl()
+    control.checked = False
+    checkbox = UIElement(
+        Query(role=Role.CHECKBOX, name="Notify me"), ChainThatFinds(control)
+    )
+
+    # When the test asks
+    # Then it is False. Both directions of the assertion have to be usable, or
+    # half of every checkbox test has to be written as a `pytest.raises`.
+    assert checkbox.is_checked() is False
 
 
 def test_clicking_an_element_resolves_its_query_through_the_chain_first() -> None:

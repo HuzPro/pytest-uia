@@ -91,6 +91,16 @@ class UIElement:
     def read_text(self) -> str:
         return self._resolve().read_text()
 
+    def is_checked(self) -> bool:
+        """Whether a checkbox or radio button is currently on.
+
+        A read, so it is never gated on provider trust: only *actions* are
+        guesses about a control the MSAA proxy cannot really reach. Measured on
+        an annotated Tk `Checkbutton`, the proxy derives a live ToggleState from
+        the widget itself and follows it with no call to `tk-uia` at all.
+        """
+        return self._resolve().is_checked()
+
     def exists(self, *, timeout: float | None = None) -> bool:
         """Answer instead of raising, so a test can assert either way."""
         try:
@@ -259,6 +269,61 @@ class ElementSource:
         application happened to open with.
         """
         return self._element_for(Role.TAB, name, timeout)
+
+    # Every other kind of control, one call each. Spelled out rather than
+    # generated from the role table: these are the whole vocabulary a test
+    # author has, and a name an editor cannot complete is a name nobody finds.
+    def checkbox(self, name: str, *, timeout: float | None = None) -> UIElement:
+        return self._element_for(Role.CHECKBOX, name, timeout)
+
+    def radio(self, name: str, *, timeout: float | None = None) -> UIElement:
+        return self._element_for(Role.RADIO, name, timeout)
+
+    def slider(self, name: str, *, timeout: float | None = None) -> UIElement:
+        return self._element_for(Role.SLIDER, name, timeout)
+
+    def spinbox(self, name: str, *, timeout: float | None = None) -> UIElement:
+        return self._element_for(Role.SPINBOX, name, timeout)
+
+    def combobox(self, name: str, *, timeout: float | None = None) -> UIElement:
+        return self._element_for(Role.COMBOBOX, name, timeout)
+
+    def listbox(self, name: str, *, timeout: float | None = None) -> UIElement:
+        """A list. Its *rows* are not in the tree — see the README's caveat."""
+        return self._element_for(Role.LISTBOX, name, timeout)
+
+    def tree(self, name: str, *, timeout: float | None = None) -> UIElement:
+        """A tree. Its *items* are not in the tree either, for the same reason."""
+        return self._element_for(Role.TREE, name, timeout)
+
+    def progressbar(self, name: str, *, timeout: float | None = None) -> UIElement:
+        return self._element_for(Role.PROGRESSBAR, name, timeout)
+
+    def scrollbar(self, name: str, *, timeout: float | None = None) -> UIElement:
+        return self._element_for(Role.SCROLLBAR, name, timeout)
+
+    def group(self, name: str, *, timeout: float | None = None) -> UIElement:
+        """A frame or labelled group — useful mostly to assert one is on screen."""
+        return self._element_for(Role.GROUP, name, timeout)
+
+    def image(self, name: str, *, timeout: float | None = None) -> UIElement:
+        """A picture or drawing surface. What it *shows* is paint: see the OCR path."""
+        return self._element_for(Role.IMAGE, name, timeout)
+
+    def split_button(self, name: str, *, timeout: float | None = None) -> UIElement:
+        """A button with a menu attached — what a Tk `Menubutton` reaches a client as."""
+        return self._element_for(Role.SPLIT_BUTTON, name, timeout)
+
+    def separator(self, name: str, *, timeout: float | None = None) -> UIElement:
+        return self._element_for(Role.SEPARATOR, name, timeout)
+
+    def thumb(self, name: str, *, timeout: float | None = None) -> UIElement:
+        """A drag handle — a `ttk.Sizegrip`, or the thumb of a scrollbar."""
+        return self._element_for(Role.THUMB, name, timeout)
+
+    def tab_strip(self, name: str, *, timeout: float | None = None) -> UIElement:
+        """The strip a notebook's tabs sit on. Its tabs are `app.tab(...)`."""
+        return self._element_for(Role.TAB_STRIP, name, timeout)
 
     def _element_for(self, role: Role, name: str, timeout: float | None) -> UIElement:
         return UIElement(

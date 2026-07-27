@@ -216,11 +216,12 @@ window with a rich accessibility tree and one without.
 These are deliberate omissions, not oversights. Each would be a reasonable
 addition later; none is missing by accident.
 
-- **Widgets:** menus, comboboxes, checkboxes and radio buttons, tables and trees.
-  Notebook tabs came off this list in 0.6.0 — `app.tab(name)` — because a
-  notebook is the one widget that can hide the rest of an application from a
-  test: it unmaps every page but the open one, so a suite that could not change
-  tabs could not reach them at all.
+- **Widgets:** what is *inside* a list, a tree or a menu. The widgets themselves
+  came off this list in 0.7.0 — fifteen roles, from `checkbox` to `tab_strip` —
+  after a survey of every Tk widget class found 37 typed and named and 5 a test
+  could ask for. Their rows and items need MSAA's `IAccessible` child-id model,
+  which is a COM server and a different piece of work; `app.listbox(...)` finds
+  the list and says nothing about what is in it.
 - **Interactions:** drag-and-drop, right-click, double-click, keyboard chords,
   scrolling.
 - **Assertions:** image-diff comparisons. If a test needs to compare pixels, this

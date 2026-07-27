@@ -23,6 +23,32 @@ class Role(Enum):
     # handle of its own, and a role that had nothing to match now has.
     TAB = auto()
 
+    # 0.7.0. Every one of these names a control type that was already being
+    # announced correctly to a screen reader and was reachable by nothing here:
+    # a survey of both Tk toolkits found 37 widgets typed and named, and 5 a
+    # test could ask for. Each is one control type, named the way somebody
+    # writing a test would say it rather than the way UI Automation spells it —
+    # `textbox` above set that precedent over `EditControl`.
+    CHECKBOX = auto()
+    RADIO = auto()
+    SLIDER = auto()
+    SPINBOX = auto()
+    COMBOBOX = auto()
+    LISTBOX = auto()
+    TREE = auto()
+    PROGRESSBAR = auto()
+    SCROLLBAR = auto()
+    GROUP = auto()
+    IMAGE = auto()
+    # UI Automation's own words for the three that have no everyday name. A
+    # `tk.Menubutton` is a split button, a `ttk.Sizegrip` is a thumb, and a
+    # notebook's strip is a tab control; naming them after the Tk widget would
+    # be this plugin, which drives WinForms and WPF too, speaking one toolkit.
+    SPLIT_BUTTON = auto()
+    SEPARATOR = auto()
+    THUMB = auto()
+    TAB_STRIP = auto()
+
 
 @dataclass(frozen=True)
 class Query:

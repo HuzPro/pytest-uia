@@ -80,6 +80,11 @@ def tk_notebook_command() -> list[str]:
     return [_INTERPRETER, str(FIXTURE_APPS / "tk_notebook_app.py")]
 
 
+def tk_gallery_command() -> list[str]:
+    """How the fixture app holding one of every kind of control is started."""
+    return [_INTERPRETER, str(FIXTURE_APPS / "tk_gallery_app.py")]
+
+
 def tk_canvas_command() -> list[str]:
     """How the fixture app with no accessibility tree at all is started."""
     return [_INTERPRETER, str(FIXTURE_APPS / "tk_canvas_app.py")]
@@ -148,6 +153,11 @@ def tk_app() -> Iterator[App]:
 @pytest.fixture
 def tk_notebook_app() -> Iterator[App]:
     yield from _app_launched_by_its_own_session(tk_notebook_command())
+
+
+@pytest.fixture
+def tk_gallery_app() -> Iterator[App]:
+    yield from _app_launched_by_its_own_session(tk_gallery_command())
 
 
 @pytest.fixture

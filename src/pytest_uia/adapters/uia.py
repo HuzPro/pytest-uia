@@ -90,6 +90,26 @@ _CONTROL_TYPE_FOR_ROLE = {
     # this table — Tk's tabs were paint until `tk-uia` gave them handles — and
     # a table that never learns a new control type could not follow it.
     Role.TAB: auto.ControlType.TabItemControl,
+    # 0.7.0. One line each, and the reverse map below derives from this one, so
+    # widening what a query can find and widening what a dump offers a query for
+    # stay a single edit. Every control type here was measured coming out of a
+    # real Tk window: see tk-uia's COVERAGE.md, which is regenerated rather than
+    # written.
+    Role.CHECKBOX: auto.ControlType.CheckBoxControl,
+    Role.RADIO: auto.ControlType.RadioButtonControl,
+    Role.SLIDER: auto.ControlType.SliderControl,
+    Role.SPINBOX: auto.ControlType.SpinnerControl,
+    Role.COMBOBOX: auto.ControlType.ComboBoxControl,
+    Role.LISTBOX: auto.ControlType.ListControl,
+    Role.TREE: auto.ControlType.TreeControl,
+    Role.PROGRESSBAR: auto.ControlType.ProgressBarControl,
+    Role.SCROLLBAR: auto.ControlType.ScrollBarControl,
+    Role.GROUP: auto.ControlType.GroupControl,
+    Role.IMAGE: auto.ControlType.ImageControl,
+    Role.SPLIT_BUTTON: auto.ControlType.SplitButtonControl,
+    Role.SEPARATOR: auto.ControlType.SeparatorControl,
+    Role.THUMB: auto.ControlType.ThumbControl,
+    Role.TAB_STRIP: auto.ControlType.TabControl,
 }
 
 # Derived rather than written out again, so that widening what a query can find
@@ -368,6 +388,23 @@ class UiaElement:
             if self._holds_editable_text():
                 return self._whatever_the_value_pattern_holds()
             return self._control.Name
+
+    def is_checked(self) -> bool:
+        """Whether this control's TogglePattern currently reads as on.
+
+        Ungated by provider trust for the same reason `read_text` is: a state
+        the provider reports is a fact about the control, where an *action*
+        through the same provider is a guess about one it cannot reach.
+
+        A control with no TogglePattern answers False rather than raising. It is
+        the honest answer to "is this checked" for something that cannot be —
+        and the query that found it already refused everything of the wrong role.
+        """
+        with reporting_a_dead_window_as(ElementNotFound, self._window):
+            pattern = self._control.GetPattern(auto.PatternId.TogglePattern)
+            if pattern is None:
+                return False
+            return pattern.ToggleState == auto.ToggleState.On
 
     def is_visible(self) -> bool:
         # Being on-screen is not enough: a control can sit in the tree of a

@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.0 — 2026-07-27
+
+Fifteen new roles, and a survey that explains why they were needed. Reading
+every widget class both Tk toolkits ship found 37 of them typed and named — and
+**5** a test could ask for. Every checkbox, slider, listbox and tree in every Tk
+application was announced correctly to a screen reader and reachable by nothing
+here.
+
+- **`app.checkbox` / `radio` / `slider` / `spinbox` / `combobox` / `listbox` /
+  `tree` / `progressbar` / `scrollbar` / `group` / `image` / `split_button` /
+  `separator` / `thumb` / `tab_strip`**, on `App` and on `Dialog` alike. Each is
+  one control type, named the way somebody writing a test would say it — the
+  precedent `textbox` set over `EditControl` — except the three with no everyday
+  name, which take UI Automation's own: this plugin drives WinForms and WPF too,
+  and naming a control after the Tk widget would be it speaking one toolkit.
+
+- **`element.is_checked()`.** The one read a spec forced: a suite that clicks a
+  checkbox and assumes it toggled passes just as happily when the click went
+  nowhere, which on an owner-drawn Tk button it silently can. Ungated by
+  provider trust, like `read_text` and for the same reason — a state the
+  provider reports is a fact, where an action through it is a guess. A control
+  with no toggle state answers `False` rather than raising.
+
+- **No read for a slider.** Measured: an annotated Tk `Scale` reaches a client
+  as a `SliderControl` offering no pattern at all, so there is no honest way to
+  read its number. A `ttk.Progressbar` does carry a ValuePattern and `read_text()`
+  already returns it. No API was added for the case that cannot be served.
+
+- **The dump offers a query for every one of them**, derived from the same table
+  the search reads, so widening what can be found and widening what is offered
+  stay a single edit.
+
+- **A gallery fixture and nineteen end-to-end specs.** One window holding one of
+  every kind of control, each named the way a real application names it. One of
+  the specs is about what a role must *not* match, and it asks the accessibility
+  locator rather than the whole chain — measured, the pixel fallback answers a
+  query for a button with the words painted on a checkbox, because OCR cannot
+  see roles. That is the fallback behaving as documented, and the spec says so.
+
 ## 0.6.0 — 2026-07-27
 
 `app.tab("Database").click()`. A notebook shows one page and unmaps the rest,

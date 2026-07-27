@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from itertools import takewhile
 
+import pytest
+
 from pytest_uia.domain.dump import dump_of
 from pytest_uia.domain.query import Role
 from pytest_uia.domain.tree import DumpLimits, TreeNode, Walk, WalkEnded
@@ -126,6 +128,48 @@ def test_a_textbox_and_a_label_are_reported_as_their_own_queries_rather_than_as_
     )
     assert 'app.text("ready")' in rendered, (
         f"a static label's query is text, not button: {rendered}"
+    )
+
+
+EVERY_ROLE_A_TEST_CAN_ASK_FOR = [
+    ("CHECKBOX", "CheckBoxControl", "checkbox"),
+    ("RADIO", "RadioButtonControl", "radio"),
+    ("SLIDER", "SliderControl", "slider"),
+    ("SPINBOX", "SpinnerControl", "spinbox"),
+    ("COMBOBOX", "ComboBoxControl", "combobox"),
+    ("LISTBOX", "ListControl", "listbox"),
+    ("TREE", "TreeControl", "tree"),
+    ("PROGRESSBAR", "ProgressBarControl", "progressbar"),
+    ("SCROLLBAR", "ScrollBarControl", "scrollbar"),
+    ("GROUP", "GroupControl", "group"),
+    ("IMAGE", "ImageControl", "image"),
+    ("SPLIT_BUTTON", "SplitButtonControl", "split_button"),
+    ("SEPARATOR", "SeparatorControl", "separator"),
+    ("THUMB", "ThumbControl", "thumb"),
+    ("TAB_STRIP", "TabControl", "tab_strip"),
+]
+
+
+@pytest.mark.parametrize(
+    ("member", "control_type", "call"), EVERY_ROLE_A_TEST_CAN_ASK_FOR
+)
+def test_each_kind_of_control_is_offered_as_the_call_that_would_reach_it(
+    member: str, control_type: str, call: str
+) -> None:
+    # Given a window holding one named control of this kind
+    walk = _a_walk_of(
+        _a_window(WINFORMS_FIXTURE),
+        _a_control(control_type, "Quantity", role=Role[member]),
+    )
+
+    # When the dump is read as text
+    rendered = str(dump_of(walk))
+
+    # Then the line carries the call that reaches it. The dump and the locator
+    # read the same table, so a control type the dump offers a query for is one
+    # the search can really find — anything else hands the reader a dead line.
+    assert f'app.{call}("Quantity")' in rendered, (
+        f"{control_type} is in the tree with no way to reach it: {rendered}"
     )
 
 
