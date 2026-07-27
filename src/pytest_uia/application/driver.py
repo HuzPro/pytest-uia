@@ -250,6 +250,16 @@ class ElementSource:
     def text(self, value: str, *, timeout: float | None = None) -> UIElement:
         return self._element_for(Role.TEXT, value, timeout)
 
+    def tab(self, name: str, *, timeout: float | None = None) -> UIElement:
+        """One tab of a notebook, which `click()` selects.
+
+        The control a test reaches before it can reach anything on the page
+        behind it: a notebook shows one page at a time and unmaps the rest, so
+        until this can be clicked, a test can only read whichever page the
+        application happened to open with.
+        """
+        return self._element_for(Role.TAB, name, timeout)
+
     def _element_for(self, role: Role, name: str, timeout: float | None) -> UIElement:
         return UIElement(
             Query(role=role, name=name),

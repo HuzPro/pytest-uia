@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.6.0 — 2026-07-27
+
+`app.tab("Database").click()`. A notebook shows one page and unmaps the rest,
+so a suite that could not change tabs could only ever assert on whichever page
+the application opened with — for a tabbed settings window, one tab out of six,
+however well every widget on the other five was named.
+
+- **`Role.TAB`, and `app.tab(name)` / `dialog.tab(name)` alongside it.** The
+  first entry added to `_CONTROL_TYPE_FOR_ROLE` since 0.1.0, and worth being
+  precise about, because that table not moving has been evidence for the
+  project's central claim. This is not the locator being widened to accept a
+  control type it used to reject — widening `Role.TEXT` to take a `PaneControl`
+  would match every anonymous `ttk` widget in a window and is still refused. It
+  is a new role naming the control type a tab genuinely has. What changed is
+  the tree underneath: Tk painted its tab strip inside the notebook's own
+  window and exposed no tabs at all, and `tk-uia` 0.4.0 gives each one a window
+  handle. A role that had nothing to match now has something.
+
+- **Both halves are needed and neither shows up in a test.** `tk-uia` puts the
+  tab in the tree; this plugin asks for the right control type. `app.tab(...)`
+  reads like every other line, which is the point. Against WinForms, WPF and
+  anything else that already exposed its tabs, this works with no `tk-uia` at
+  all.
+
+- **The dump offers a tab query for every tab it sees.** Derived from the same
+  table as the search, so what a dump promises and what a locator can find stay
+  one edit. A tab listed with no query beside it was the reader being shown a
+  wall they could not pass.
+
+- **Five end-to-end specs against a real Tk notebook**, including the two that
+  say what a notebook actually does: clicking a tab brings its page into the
+  tree, and the page left behind stops answering. A suite that asserted on two
+  pages at once would be asserting on a window that never existed.
+
 ## 0.5.0 — 2026-07-26
 
 The accessibility tree dump. A newcomer's first real question is *what is my

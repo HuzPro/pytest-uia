@@ -129,6 +129,25 @@ def test_a_textbox_and_a_label_are_reported_as_their_own_queries_rather_than_as_
     )
 
 
+def test_a_notebook_tab_is_reported_as_the_query_that_would_select_it() -> None:
+    # Given a window whose notebook has a named tab on it
+    walk = _a_walk_of(
+        _a_window(WINFORMS_FIXTURE),
+        _a_control("TabControl", "", depth=1),
+        _a_control("TabItemControl", "Database", depth=2, role=Role.TAB),
+    )
+
+    # When the dump is read as text
+    rendered = str(dump_of(walk))
+
+    # Then the tab carries the call that would select it. Until a test can
+    # change which page is open it can only read whichever one already is, so
+    # this is the line a reader of a tabbed window needs before any other
+    assert 'app.tab("Database")' in rendered, (
+        f"the tab is in the tree with no way to reach it: {rendered}"
+    )
+
+
 def test_a_control_of_a_role_no_query_asks_for_says_no_query_reaches_it_instead_of_being_omitted() -> (
     None
 ):

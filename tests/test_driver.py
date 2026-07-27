@@ -363,6 +363,23 @@ def _app_whose_window_is(window: FakeWindow, policy: RetryPolicy = _NO_PAUSE) ->
     )
 
 
+def test_asking_for_a_notebook_tab_searches_for_a_tab_rather_than_a_button() -> None:
+    # Given an application whose window has a notebook in it
+    chain = ChainThatFinds(RecordingControl())
+    app = _app_looking_things_up_in(chain)
+
+    # When the test asks for one of its tabs and clicks it
+    app.tab("Database").click()
+
+    # Then it was looked up as a tab. A notebook's tabs are the one control a
+    # test has to reach before it can reach anything on the page behind them,
+    # and they are neither buttons nor text: asking for the wrong role finds
+    # nothing at all, however well the tab is named.
+    assert chain.queries == [Query(role=Role.TAB, name="Database")], (
+        f"asked for {chain.queries}"
+    )
+
+
 def test_clicking_an_element_resolves_its_query_through_the_chain_first() -> None:
     # Given a driver element standing in for a button nobody has looked up yet
     control = RecordingControl()

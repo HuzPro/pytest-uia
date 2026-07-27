@@ -217,6 +217,10 @@ These are deliberate omissions, not oversights. Each would be a reasonable
 addition later; none is missing by accident.
 
 - **Widgets:** menus, comboboxes, checkboxes and radio buttons, tables and trees.
+  Notebook tabs came off this list in 0.6.0 — `app.tab(name)` — because a
+  notebook is the one widget that can hide the rest of an application from a
+  test: it unmaps every page but the open one, so a suite that could not change
+  tabs could not reach them at all.
 - **Interactions:** drag-and-drop, right-click, double-click, keyboard chords,
   scrolling.
 - **Assertions:** image-diff comparisons. If a test needs to compare pixels, this

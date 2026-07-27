@@ -16,6 +16,12 @@ class Role(Enum):
     BUTTON = auto()
     TEXT = auto()
     TEXTBOX = auto()
+    # A notebook's tab. Added in 0.6.0 rather than at v1, and the distinction
+    # matters: this is not the locator being widened to accept a control type
+    # it used to reject. Tk's tabs were painted rather than exposed, so there
+    # was nothing in the tree to name — `tk-uia` 0.4.0 gives each one a window
+    # handle of its own, and a role that had nothing to match now has.
+    TAB = auto()
 
 
 @dataclass(frozen=True)

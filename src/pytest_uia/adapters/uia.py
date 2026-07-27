@@ -83,6 +83,13 @@ _CONTROL_TYPE_FOR_ROLE = {
     Role.BUTTON: auto.ControlType.ButtonControl,
     Role.TEXT: auto.ControlType.TextControl,
     Role.TEXTBOX: auto.ControlType.EditControl,
+    # The first entry added since 0.1.0, and it is an addition rather than the
+    # loosening this table exists to refuse. Widening `Role.TEXT` to accept a
+    # `PaneControl` would match every anonymous ttk widget in a window; naming
+    # the control type a tab really has matches tabs. The tree changed under
+    # this table — Tk's tabs were paint until `tk-uia` gave them handles — and
+    # a table that never learns a new control type could not follow it.
+    Role.TAB: auto.ControlType.TabItemControl,
 }
 
 # Derived rather than written out again, so that widening what a query can find
