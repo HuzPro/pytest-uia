@@ -1,15 +1,5 @@
-# Publishes to PyPI via Trusted Publishing (OIDC); no API token is stored in this repo.
-#
-# One-time setup on PyPI before the first tag push, under Account settings >
-# Publishing, add a pending publisher:
-#   PyPI project: pytest-uia
-#   Publisher:    GitHub
-#   Owner:        HuzPro
-#   Repository:   pytest-uia
-#   Workflow:     publish.yml
-#   Environment:  pypi
-# Until that publisher exists, this job runs fine up to the final step and then
-# fails at "Publish to PyPI" because PyPI rejects the OIDC token exchange.
+# Publishes to PyPI via Trusted Publishing on v* tags; no API token is stored.
+# One-time trusted publisher setup: RELEASING.md.
 
 name: publish
 
