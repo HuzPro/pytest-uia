@@ -1,11 +1,7 @@
 """Behavioral spec for noticing that Windows threw a synthetic click away.
 
-Runs against doubles, and deliberately so: the failure being specified here is
-one no fixture app can stage on demand. While a window owned by a
-higher-integrity process holds the foreground, User Interface Privilege
-Isolation drops every event this process injects and `SetCursorPos` answers 0 —
-and `uiautomation.Click` discards that answer, so the click looks like it
-worked and the test fails seconds later blaming the application.
+Doubles, deliberately: a dropped-input desktop is not something a fixture app
+can stage on demand.
 """
 
 from __future__ import annotations

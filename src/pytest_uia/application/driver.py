@@ -31,12 +31,8 @@ DEFAULT_POLICY = RetryPolicy()
 T = TypeVar("T")
 
 # All three mean "the screen is not ready yet", and all three clear on their
-# own. A control that has not painted is the obvious one; a desktop that is
-# dropping this process's synthetic input because a higher-integrity window
-# holds the foreground is the one that used to make gui suites flaky, because it
-# looked exactly like a click the application had ignored; and a control still
-# reading the value it showed before the keys landed is the same lateness one
-# property further in.
+# own: not painted yet, input dropped while another window held the
+# foreground, or a control still reading its pre-keystroke value.
 _WORTH_ANOTHER_ATTEMPT = (ElementNotFound, InputRefused, TextNeverSettled)
 
 
@@ -55,13 +51,8 @@ class UIElement:
     """Proxy for an on-screen element, standing in for one that may not exist yet.
 
     Holds the query rather than the control, and resolves it again on every
-    interaction. Caching the control instead was the motivating failure: a
-    WinForms status label that had been repainted, or a Tk dialog rebuilt after
-    a redraw, hands back a stale UIA element whose every property access fails
-    long after the test had legitimately found it.
-
-    Resolution is where the implicit wait lives, and the only place it lives:
-    locators look once, and this retries them.
+    interaction: a cached control goes stale on any repaint. Resolution is
+    where the implicit wait lives, and the only place it lives.
     """
 
     def __init__(
@@ -95,9 +86,7 @@ class UIElement:
         """Whether a checkbox or radio button is currently on.
 
         A read, so it is never gated on provider trust: only *actions* are
-        guesses about a control the MSAA proxy cannot really reach. Measured on
-        an annotated Tk `Checkbutton`, the proxy derives a live ToggleState from
-        the widget itself and follows it with no call to `tk-uia` at all.
+        guesses about a control the MSAA proxy cannot really reach.
         """
         return self._resolve().is_checked()
 
@@ -121,16 +110,13 @@ class UIElement:
 
     def _one_that_reads(self, expected: str) -> Element:
         # Resolved inside the wait rather than once in front of it: a control
-        # held across the polls goes on reading the value the application has
-        # already replaced, which is the exact lateness this method exists for.
-        # A control that is not there yet stays an ElementNotFound, because the
-        # click that sets a label's text is usually the one that creates it —
-        # both kinds of lateness share this deadline, and each is still
-        # reported as what it is.
+        # held across the polls goes on reading the replaced value. A control
+        # not there yet stays an ElementNotFound; both latenesses share this
+        # deadline.
         element = self._one_that_matches()
         read = element.read_text()
         if read != expected:
-            raise TextNeverSettled(f"{self._query} — reads {read!r}, not {expected!r}")
+            raise TextNeverSettled(f"{self._query} -- reads {read!r}, not {expected!r}")
         return element
 
     def _one_that_is_painted(self) -> Element:
@@ -139,7 +125,7 @@ class UIElement:
         # lands on whatever is underneath.
         element = self._locator.find(self._query)
         if not element.is_visible():
-            raise ElementNotFound(f"{self._query} — found, but not yet painted")
+            raise ElementNotFound(f"{self._query} -- found, but not yet painted")
         return element
 
     def _resolve(self, timeout: float | None = None) -> Element:
@@ -242,10 +228,9 @@ class ElementSource:
     def dump(self, *, limits: DumpLimits = DEFAULT_LIMITS) -> Dump:
         """Every control in this window, and the query that would find each one.
 
-        Deliberately does not print. Printing from a library call is a side
-        effect a diagnostic should not have, and under pytest it would vanish
-        into captured output anyway — so `print(app.dump())` with `-s`, or the
-        failure message, or the command line.
+        Deliberately does not print: under pytest that would vanish into
+        captured output anyway. `print(app.dump())` with `-s`, or the failure
+        message, or the command line.
         """
         return dump_of(
             self._tree.walk(limits), inside_the_dialog=self._inside_the_dialog
@@ -289,7 +274,7 @@ class ElementSource:
         return self._element_for(Role.COMBOBOX, name, timeout)
 
     def listbox(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A list. Its *rows* are not in the tree — see the README's caveat."""
+        """A list. Its *rows* are not in the tree: see the README's caveat."""
         return self._element_for(Role.LISTBOX, name, timeout)
 
     def tree(self, name: str, *, timeout: float | None = None) -> UIElement:
@@ -303,7 +288,7 @@ class ElementSource:
         return self._element_for(Role.SCROLLBAR, name, timeout)
 
     def group(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A frame or labelled group — useful mostly to assert one is on screen."""
+        """A frame or labelled group, useful mostly to assert one is on screen."""
         return self._element_for(Role.GROUP, name, timeout)
 
     def image(self, name: str, *, timeout: float | None = None) -> UIElement:
@@ -311,14 +296,14 @@ class ElementSource:
         return self._element_for(Role.IMAGE, name, timeout)
 
     def split_button(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A button with a menu attached — what a Tk `Menubutton` reaches a client as."""
+        """A button with a menu attached: what a Tk `Menubutton` reaches a client as."""
         return self._element_for(Role.SPLIT_BUTTON, name, timeout)
 
     def separator(self, name: str, *, timeout: float | None = None) -> UIElement:
         return self._element_for(Role.SEPARATOR, name, timeout)
 
     def thumb(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A drag handle — a `ttk.Sizegrip`, or the thumb of a scrollbar."""
+        """A drag handle: a `ttk.Sizegrip`, or the thumb of a scrollbar."""
         return self._element_for(Role.THUMB, name, timeout)
 
     def tab_strip(self, name: str, *, timeout: float | None = None) -> UIElement:
@@ -358,7 +343,7 @@ class App(ElementSource):
         Scoped by searching from the dialog's own control rather than from the
         main window: the main window's subtree *contains* the dialog, so a
         query answered there reaches both windows' controls and returns
-        whichever the tree offers first — which is the whole ambiguity a wizard
+        whichever the tree offers first, which is the whole ambiguity a wizard
         reusing captions runs into.
 
         Waited for, because a dialog opens on the application's own message
@@ -426,10 +411,9 @@ class App(ElementSource):
 class Dialog(ElementSource):
     """A child window a test addressed by caption, and the queries scoped to it.
 
-    Deliberately not an App. A dialog has no process of its own to end and no
-    lifecycle a test may take over — `close()` and `pid` would be borrowed
-    semantics that fit the window underneath it and not this one. What it does
-    share is the way in, which is why both are ElementSources.
+    Deliberately not an App: a dialog has no process of its own to end, so
+    `close()` and `pid` would be borrowed semantics. What it does share is the
+    way in, which is why both are ElementSources.
     """
 
     def __init__(

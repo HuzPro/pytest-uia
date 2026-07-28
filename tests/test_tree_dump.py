@@ -1,13 +1,9 @@
 """Behavioral spec for the text a tree dump renders, and for what it refuses to hide.
 
-Where it plugs in: this is the formatter half of `app.dump()`. It consumes
-`TreeNode`s built by hand here, so every string the feature prints is specified
-with no Windows, no UI Automation and no window on screen — which is what keeps
-the Ubuntu CI lane a real gate on this feature rather than on its imports.
-
-The dump exists to answer one question — *what is my control called, and can
-this plugin reach it?* — so the load-bearing assertion in almost every spec
-below is the copy-paste query a line carries, or the reason there is not one.
+The formatter half of `app.dump()`. It consumes `TreeNode`s built by hand
+here, so every string the feature prints is specified with no Windows and no
+window on screen. The load-bearing assertion in almost every spec is the
+copy-paste query a line carries, or the reason there is not one.
 """
 
 from __future__ import annotations
@@ -167,7 +163,7 @@ def test_each_kind_of_control_is_offered_as_the_call_that_would_reach_it(
 
     # Then the line carries the call that reaches it. The dump and the locator
     # read the same table, so a control type the dump offers a query for is one
-    # the search can really find — anything else hands the reader a dead line.
+    # the search can really find, anything else hands the reader a dead line.
     assert f'app.{call}("Quantity")' in rendered, (
         f"{control_type} is in the tree with no way to reach it: {rendered}"
     )
@@ -223,7 +219,7 @@ def test_a_control_of_a_role_no_query_asks_for_says_no_query_reaches_it_instead_
 def test_a_control_whose_accessible_name_is_empty_says_it_has_nothing_to_match_on() -> (
     None
 ):
-    # Given a button of exactly the type a query asks for, carrying no name —
+    # Given a button of exactly the type a query asks for, carrying no name,
     # which is every widget of a Tk window nobody has annotated
     walk = _a_walk_of(
         _a_window(WINFORMS_FIXTURE),
@@ -235,7 +231,7 @@ def test_a_control_whose_accessible_name_is_empty_says_it_has_nothing_to_match_o
 
     # Then it says what is missing, rather than offering `app.button("")`. That
     # line would be a query the reader could paste and watch fail, about a
-    # button that is genuinely on screen — the exact confusion this feature
+    # button that is genuinely on screen, the exact confusion this feature
     # exists to end
     assert 'app.button("")' not in rendered, (
         f"a query nothing can match must never be offered as one: {rendered}"
@@ -259,7 +255,7 @@ def test_a_container_with_no_children_says_that_what_it_shows_is_paint() -> None
 
     # Then it reports the finding rather than the taxonomy. "PaneControl is not
     # a role this plugin asks for" invites the reader to go looking inside it;
-    # there is nothing inside it, and that — not the control type — is why no
+    # there is nothing inside it, and that (not the control type) is why no
     # tool that reads names will ever help them here
     assert "no query: nothing inside it, so what it shows is paint" in rendered, (
         f"an empty container is the whole diagnosis for a canvas-drawn window, "
@@ -283,7 +279,7 @@ def test_two_controls_sharing_a_role_and_a_name_are_both_reported_as_ambiguous()
 
     # Then neither line offers the query, and both say how many controls answer
     # it. Printing it twice would hand the reader a line that resolves to
-    # whichever control the tree happens to offer first — a passing test about
+    # whichever control the tree happens to offer first, a passing test about
     # a control nobody chose
     assert rendered.count('ambiguous: 2 controls answer app.button("Confirm")') == 2, (
         f"both halves of a collision have to be marked, or the reader takes "
@@ -305,8 +301,8 @@ def test_a_control_inside_a_child_window_is_reported_as_a_query_scoped_to_that_d
     rendered = str(dump_of(walk))
 
     # Then the box's query says which window it means. The unscoped call would
-    # also find it today — a search runs over the main window's whole subtree,
-    # and the dialog is inside that — which is exactly why the scoped one is
+    # also find it today (a search runs over the main window's whole subtree,
+    # and the dialog is inside that) which is exactly why the scoped one is
     # the line worth pasting: it goes on meaning this box when the next step of
     # the wizard reuses the caption
     assert 'app.dialog("Settings").textbox("Folder")' in rendered, (
@@ -385,7 +381,7 @@ def test_the_indentation_of_a_line_is_the_depth_of_the_control_it_describes() ->
     lines = _the_tree_of(walk)
 
     # Then each line is indented by its own depth, which is the only thing that
-    # says a control is *inside* another rather than beside it — and what is
+    # says a control is *inside* another rather than beside it, and what is
     # inside what is half of the answer a reader came for
     assert lines[0].startswith("WindowControl"), f"the root is not indented: {lines}"
     assert lines[1].startswith("  WindowControl"), (
@@ -455,7 +451,7 @@ def test_the_window_chrome_is_folded_into_one_line_that_counts_what_it_hid() -> 
         f"chrome the reader did not write and cannot change is noise in the "
         f"one column they came to read: {rendered}"
     )
-    # and the fold is stated, counted, named and reversible — which is what
+    # and the fold is stated, counted, named and reversible, which is what
     # separates trimming noise from quietly omitting. Anything the dump will
     # not show, it says it is not showing
     assert "3 more controls folded" in rendered, (
@@ -498,7 +494,7 @@ def test_a_finding_too_long_for_the_line_wraps_where_a_query_of_the_same_length_
     )
     # and the query is not wrapped, whatever its length. A query broken across
     # two lines cannot be pasted, and this one would break inside its own
-    # quoted name — where the break is invisible
+    # quoted name, where the break is invisible
     pasteable = [line for line in lines if line.endswith(f'"{a_long_name}")')]
     assert len(pasteable) == 1, (
         f"the one thing on the page that has to survive a copy and paste is "
@@ -516,7 +512,7 @@ def test_a_dump_whose_chrome_is_asked_for_lists_every_control_that_was_folded() 
     rendered = dump_of(walk).with_window_chrome()
 
     # Then every folded control is a line of its own, with its own query. The
-    # fold is a rendering choice and this is the other rendering — which is
+    # fold is a rendering choice and this is the other rendering, which is
     # what makes the fold a fold rather than a deletion
     assert 'app.button("Minimize")' in rendered, (
         f"a fold that cannot be undone is an omission with a footnote: {rendered}"
@@ -579,7 +575,7 @@ def test_a_window_where_nothing_is_addressable_says_so_instead_of_listing_no_que
 
     # Then the list of queries is there and its emptiness is spelled out with
     # what to do instead. A heading over nothing reads like a bug in the tool,
-    # and the reader's next move — pixels, or annotating an app they own — is
+    # and the reader's next move (pixels, or annotating an app they own) is
     # the whole finding here
     assert "queries this window authorises:" in rendered, (
         f"the summary a reader scrolls to has to be there even when it is "
@@ -618,7 +614,7 @@ def test_the_queries_a_window_authorises_are_gathered_at_the_foot_in_tree_order(
     authorised = _the_footer_of(walk)
 
     # Then it is every unambiguous query, scoped, in the order the tree gave
-    # them — and the ambiguous one is not in it, because a list of things that
+    # them, and the ambiguous one is not in it, because a list of things that
     # work must not include the one that does not
     assert authorised == [
         'app.button("Open Settings")',
@@ -644,7 +640,7 @@ def test_a_control_this_plugin_will_drive_with_the_mouse_is_marked_and_the_marke
     rendered = str(dump_of(walk))
 
     # Then the line carries the marker, after the query rather than instead of
-    # it — the control is perfectly addressable, and only the way it is driven
+    # it, the control is perfectly addressable, and only the way it is driven
     # differs
     assert 'app.button("New Task")  [mouse]' in rendered, (
         f"the marker belongs after the query, not in place of it: {rendered}"
@@ -723,7 +719,7 @@ def test_a_marker_only_the_folded_chrome_carries_is_explained_only_where_it_show
 
 
 def test_a_control_that_is_in_the_tree_but_off_screen_is_marked_as_such() -> None:
-    # Given a control the window carries with no pixels of its own — a wizard
+    # Given a control the window carries with no pixels of its own, a wizard
     # step not on this page yet, a panel behind a tab
     walk = _a_walk_of(
         _a_window(WINFORMS_FIXTURE),
@@ -748,7 +744,7 @@ def test_a_control_that_is_in_the_tree_but_off_screen_is_marked_as_such() -> Non
 def test_a_control_whose_provider_stopped_answering_is_named_rather_than_dropped() -> (
     None
 ):
-    # Given a control that was walked and then stopped answering — a child
+    # Given a control that was walked and then stopped answering, a child
     # window destroyed while the dump was being taken
     walk = _a_walk_of(
         _a_window(WINFORMS_FIXTURE),
@@ -794,9 +790,9 @@ def test_an_automation_id_is_shown_beside_the_name_and_never_offered_as_a_query(
     assert "id=4207" in lines[1], (
         f"an id the application set deliberately is worth reporting: {lines[1]}"
     )
-    # and the query is still by name. v1 cannot search by automation id at all,
-    # and for WinForms it is HWND-derived and changes on every launch — so a
-    # dump that offered one would be handing out a test that passes today
+    # and the query is still by name: the search cannot use an automation id,
+    # and a WinForms id is HWND-derived and changes on every launch, so a dump
+    # that offered one would be handing out a test that passes today
     assert lines[1].endswith('app.button("New Task")'), (
         f"the load-bearing column is the query, and the query is the name: {lines[1]}"
     )
@@ -833,9 +829,8 @@ def test_a_dump_that_hit_the_node_cap_says_there_are_more_and_names_the_call_tha
 
 
 def test_a_dump_that_ran_out_of_time_says_which_window_was_answering_slowly() -> None:
-    # Given a walk that ran out of wall clock rather than out of allowance —
-    # measured, `Program Manager` answers five controls in 4.1 seconds, so this
-    # is what a node cap cannot catch
+    # Given a walk that ran out of wall clock rather than out of allowance,
+    # which is what a node cap cannot catch
     walk = Walk(
         nodes=(
             _a_window(WINFORMS_FIXTURE),
@@ -907,7 +902,7 @@ def test_the_dumps_own_words_stay_ascii_while_an_applications_name_passes_throug
     )
     # and everything the dump wrote itself is ASCII. A console under cp1252, or
     # stdout redirected to a file, raises UnicodeEncodeError on an arrow or an
-    # em dash — which would turn a diagnostic into a crash on exactly the
+    # em dash, which would turn a diagnostic into a crash on exactly the
     # machines this plugin targets
     ours = rendered.replace("Speichern (überschreiben)", "")
     assert ours.isascii(), (

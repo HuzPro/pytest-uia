@@ -2,7 +2,7 @@
 
 Where it plugs in: launched as a subprocess by `tests/conftest.py`, then driven
 through the accessibility tree like every other fixture here. It exists for one
-control the others do not have — a `ttk.Notebook` — because a notebook is the
+control the others do not have (a `ttk.Notebook`) because a notebook is the
 one widget that can hide the rest of an application from a test.
 
 `ttk` here, deliberately, where `tk_app.py` is classic `tk` throughout and says

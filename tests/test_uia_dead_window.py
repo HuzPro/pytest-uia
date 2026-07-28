@@ -1,18 +1,5 @@
 """Behavioral spec for what the adapter says once the application has exited.
 
-The one scenario the driver's whole design is built around — proxy elements,
-re-resolved on every interaction, retried on a miss — is a window that is not
-what it was a moment ago. Its extreme is a window that is not there at all: an
-app that crashed, or one the test's own click on Quit ended. Every control
-underneath it then holds a provider that is gone, and `comtypes` answers each
-property access with a raw HRESULT rather than with a value.
-
-Measured against the WinForms fixture: `taskkill /t /f`, then a query, gave
-`_ctypes.COMError: (-2147220991, 'An event was unable to invoke any of the
-subscribers', ...)` out of `exists()` and out of `App.title` alike — from the
-API documented as answering True or False rather than raising, and from a
-package whose errors module promises a test never has to read an HRESULT.
-
 Doubles, because a control that answers nothing at all is not something a live
 fixture app can be asked to be. They carry `uiautomation`'s own PascalCase
 names on purpose: they stand in for its Controls.
@@ -55,7 +42,7 @@ class DeadControl:
     """Test double: a control whose application exited underneath it.
 
     Every property is served by a provider that is no longer there, so every
-    one of them raises instead of answering — including the name, which is what
+    one of them raises instead of answering, including the name, which is what
     makes a failure message about this window its own kind of problem.
     """
 
@@ -108,7 +95,7 @@ def test_reading_an_element_whose_application_has_exited_is_reported_as_a_miss()
         element.read_text()
 
     # Then it is the domain's own kind of absence, which the driver retries and
-    # `exists()` can turn into an answer — not an HRESULT out of comtypes
+    # `exists()` can turn into an answer, not an HRESULT out of comtypes
     assert "gone" in str(gone.value), (
         f"the reader has to be told the window went away: {gone.value}"
     )

@@ -31,7 +31,7 @@ FIXTURE_APPS = Path(__file__).parent / "fixture_apps"
 # A `skipif` marks a test; it cannot stop pytest importing the module carrying
 # it. The specs named after the UIA adapter reach `uiautomation` and `comtypes`
 # at module scope, and both are declared `sys_platform == 'win32'`, so off
-# Windows they are not collected at all — otherwise the lane that exists to
+# Windows they are not collected at all, otherwise the lane that exists to
 # prove the domain is platform-independent dies during collection instead.
 # Every other spec either imports its adapter inside the test or asks for it
 # with `pytest.importorskip`.
@@ -42,11 +42,8 @@ collect_ignore_glob = [] if sys.platform == "win32" else ["test_uia_*.py"]
 # thirty has always been enough.
 _READY_TIMEOUT_SECONDS = 30.0
 
-# Deliberately `sys.executable`, which inside a virtual environment on Windows
-# is a copy of CPython's venvlauncher.exe: it starts the real interpreter as a
-# *child* and waits for it, so the pid a launch reports owns no window at all.
-# It is also exactly what a user writes, and what the README shows, so the
-# product has to cope with it rather than the specs tiptoeing around it.
+# `sys.executable` inside a venv is a launcher whose child owns the window; it
+# is also exactly what a user writes, so the product has to cope with it.
 _INTERPRETER = sys.executable
 
 
@@ -110,7 +107,7 @@ def tk_uia_is_installed() -> bool:
 
     Same shape and same rationale as the check above. Without it a missing
     `tk_uia` kills the fixture app during its own imports, and the spec that
-    wanted it reports a thirty-second "no visible top-level window" timeout —
+    wanted it reports a thirty-second "no visible top-level window" timeout:
     a failure that says nothing at all about what is actually missing.
     """
     try:
@@ -130,14 +127,14 @@ def skipped_when_windows_refuses_synthetic_input() -> Iterator[None]:
     and no amount of retrying inside the driver changes that.
 
     Deliberately narrow. It catches only `InputRefused`, which is raised on
-    Windows' own answer that the event was never delivered — never on a click
+    Windows' own answer that the event was never delivered, never on a click
     that landed and did nothing, which stays a failure. And it wraps only the
     interaction: everything the specs actually assert about still runs.
     """
     try:
         yield
     except InputRefused as refusal:
-        pytest.skip(f"Windows is refusing synthetic mouse input — {refusal}")
+        pytest.skip(f"Windows is refusing synthetic mouse input -- {refusal}")
 
 
 @pytest.fixture

@@ -8,7 +8,7 @@ application nobody wrote for this test.
 
 The three windows are the argument in miniature: WinForms has always had a full
 accessibility tree, Tk has one because `tk_uia` annotated it, and the canvas
-window has nothing at all — and the dump has to be useful about all three,
+window has nothing at all, and the dump has to be useful about all three,
 including the one where the honest answer is "no query will ever reach this".
 
 These specs take no input and steal no foreground. The dump reads properties
@@ -131,7 +131,7 @@ def test_the_dump_of_a_dialog_stops_at_that_dialogs_edge(tk_app: App) -> None:
 def test_the_command_line_dumps_a_window_that_is_already_on_screen(
     winforms_app: App,
 ) -> None:
-    # Given the WinForms fixture on screen and no test written against it —
+    # Given the WinForms fixture on screen and no test written against it,
     # which is the situation this command exists for
     assert winforms_app.title == WINFORMS_FIXTURE
 

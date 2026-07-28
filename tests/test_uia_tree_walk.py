@@ -11,7 +11,7 @@ Named `test_uia_*` because it imports `uiautomation` at module scope for
 The doubles carry `uiautomation`'s own PascalCase names on purpose: they stand
 in for its Controls, exactly as `tests/test_uia_dead_window.py`'s `DeadControl`
 does. Between them they answer `GetFirstChildControl` and
-`GetNextSiblingControl`, which is all `auto.WalkControl` ever calls — so the
+`GetNextSiblingControl`, which is all `auto.WalkControl` ever calls, so the
 *real* walk runs over a tree assembled here, and the adapter's translation is
 specified with no desktop at all.
 """
@@ -96,8 +96,8 @@ def test_walking_a_window_reports_its_own_control_first_and_at_depth_zero() -> N
     walk = UiaWindow(window).walk(DumpLimits())
 
     # Then the window itself is the first thing reported, at the top. Every
-    # rule the formatter applies is relative to that root — the scoping, the
-    # indentation, the "this is the window you dumped" line — so a walk that
+    # rule the formatter applies is relative to that root (the scoping, the
+    # indentation, the "this is the window you dumped" line) so a walk that
     # started at the first child would silently shift all of them
     assert walk.nodes[0].depth == 0, (
         f"the window under test is the root of its own dump: {walk.nodes[0]}"
@@ -120,8 +120,8 @@ def test_walking_a_window_reports_a_childs_control_type_name_accessible_name_and
     # When the adapter walks it
     walk = UiaWindow(window).walk(DumpLimits())
 
-    # Then all three identifiers a reader might already have in front of them —
-    # from Accessibility Insights, or from inspect.exe — come back, one level
+    # Then all three identifiers a reader might already have in front of them
+    # (from Accessibility Insights, or from inspect.exe) come back, one level
     # below the window
     box = walk.nodes[1]
     assert box.control_type == "EditControl", f"the control type is the head: {box}"
@@ -162,7 +162,7 @@ def test_a_control_type_no_role_maps_to_is_walked_with_no_role_rather_than_skipp
 
     # Then it is in the walk with nothing claimed about it. Filtering it out
     # here would put the omission below the formatter, where no wording can
-    # rescue it — and the formatter's whole job is to say why it is unreachable
+    # rescue it, and the formatter's whole job is to say why it is unreachable
     assert len(walk.nodes) == 2, (
         f"the walk reports what is there, and decides nothing: {walk.nodes}"
     )
@@ -174,8 +174,8 @@ def test_a_control_type_no_role_maps_to_is_walked_with_no_role_rather_than_skipp
 def test_a_control_the_generic_proxy_speaks_for_is_walked_as_one_this_plugin_drives_by_mouse() -> (
     None
 ):
-    # Given a Tk button — no provider of its own, so Windows fabricates one out
-    # of MSAA — beside a control of a framework that answers for itself
+    # Given a Tk button (no provider of its own, so Windows fabricates one out
+    # of MSAA) beside a control of a framework that answers for itself
     window = _a_window(
         FakeControl(
             "ButtonControl",
@@ -191,7 +191,7 @@ def test_a_control_the_generic_proxy_speaks_for_is_walked_as_one_this_plugin_dri
 
     # Then the Tk button is marked and the window is not. It is the same rule
     # the element adapter already applies before it decides whether to invoke
-    # or to click, asked here for reporting rather than for acting — so the
+    # or to click, asked here for reporting rather than for acting, so the
     # dump cannot drift from what a test will actually do
     assert walk.nodes[1].driven_by_the_mouse is True, (
         f"a control this plugin will reach for the pointer to drive is worth "
@@ -326,8 +326,8 @@ class ControlOfAnApplicationThatHasExited:
     """Test double: a window whose provider went away underneath the walk.
 
     Measured against the WinForms fixture after `taskkill /t /f`: iterating it
-    raised out of `GetFirstChildControl` — from the walk itself, not from a
-    property read — and every individual property answered the same HRESULT.
+    raised out of `GetFirstChildControl` (from the walk itself, not from a
+    property read) and every individual property answered the same HRESULT.
     """
 
     @property
@@ -372,10 +372,9 @@ def test_walking_a_window_whose_application_has_exited_is_reported_as_the_window
     with pytest.raises(WindowNotFound) as gone:
         UiaWindow(window).walk(DumpLimits())
 
-    # Then it is the domain's own kind of absence, as `App.title` has answered
-    # since 0.4.1 — not an HRESULT out of comtypes, raised past a driver that
-    # never catches one. WindowNotFound rather than ElementNotFound because
-    # nothing was being looked for
+    # Then it is the domain's own kind of absence, not an HRESULT out of
+    # comtypes. WindowNotFound rather than ElementNotFound because nothing was
+    # being looked for
     assert "gone" in str(gone.value), (
         f"the reader has to be told the window went away: {gone.value}"
     )
@@ -384,8 +383,8 @@ def test_walking_a_window_whose_application_has_exited_is_reported_as_the_window
 class ControlWhosePropertiesDied:
     """Test double: a control the walk can still step over, and cannot read.
 
-    The narrower half of the same accident — a child window destroyed while the
-    dump was being taken — where the iteration goes on answering after an
+    The narrower half of the same accident (a child window destroyed while the
+    dump was being taken) where the iteration goes on answering after an
     individual property has stopped.
     """
 

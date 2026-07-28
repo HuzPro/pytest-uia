@@ -1,19 +1,8 @@
 """Adapter over Win32's process snapshot: who a launched application really is.
 
-Where it plugs in: :func:`pytest_uia.adapters.uia.resolve_main_window` asks for
-the family of the pid a launch reported, and accepts a window owned by any
-member of it.
-
-The motivating failure: `subprocess` reports the pid of what it started, which
-is not always what runs. On Windows the `python.exe` inside a virtual
-environment is a copy of CPython's launcher — it starts the real interpreter as
-a child and waits — so `gui.launch([sys.executable, "app.py"])` hands back a pid
-that owns no window, forever. Every console-script shim and `.bat` wrapper has
-the same shape. Matching a window against the whole family is what makes the
-obvious call work.
-
-`ctypes.windll` is reached lazily so the pure walk above can be specified — and
-run in CI — on a machine with no Windows on it.
+A launched pid is often a shim (venv launcher, console script, `.bat`) whose
+child owns the window, so window resolution matches against the whole process
+family. `ctypes.windll` is reached lazily so the module imports off Windows.
 """
 
 from __future__ import annotations
@@ -36,8 +25,8 @@ def family_of(pid: int, parents: Mapping[int, int]) -> frozenset[int]:
     """The process itself, plus everything descending from it.
 
     Walks downwards from the root rather than upwards from every process: a
-    snapshot of a live machine is not a guaranteed tree — the idle process
-    parents itself, and a pid reused after its parent died can close a loop —
+    snapshot of a live machine is not a guaranteed tree (the idle process
+    parents itself, and a pid reused after its parent died can close a loop)
     and only the visited set makes either of those terminate.
     """
     children = _children_by_parent(parents)

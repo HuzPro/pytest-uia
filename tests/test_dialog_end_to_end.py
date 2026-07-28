@@ -1,6 +1,6 @@
 """Behavioral spec for addressing a child modal dialog by the caption it carries.
 
-Where it plugs in: the public surface only — no locators, no adapters — over the
+Where it plugs in: the public surface only (no locators, no adapters) over the
 Tk fixture app's first-run dialog, on the real desktop.
 
 What is being proven is *not* that a dialog is reachable. It always was: Tk owns

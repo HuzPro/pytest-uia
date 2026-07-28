@@ -4,7 +4,7 @@ Where it plugs in: launched as a subprocess by `tests/conftest.py`, and driven
 by every spec that has to prove the pixel path still carries a window on its
 own. Everything visible here is drawn on one `tk.Canvas` with `create_text`,
 which the accessibility tree serves as a single anonymous pane with **zero**
-children — measured, not assumed. There is nothing in it for a query by name
+children, measured, not assumed. There is nothing in it for a query by name
 and role to match, which is exactly the case OCR exists for.
 
 `tk_uia` is deliberately never imported. Its sibling `tk_app.py` is the window

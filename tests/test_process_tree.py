@@ -1,10 +1,7 @@
 """Behavioral spec for treating a launched application as the tree it really is.
 
-The motivating failure is everyday rather than exotic: on Windows the
-`python.exe` inside a virtual environment is a launcher that starts the real
-interpreter as a *child*, so the pid a launch reports owns no window at all and
-the window that appears belongs to a pid nobody ever returned. Anything started
-through a shim — a console script, a `.bat`, a launcher — behaves the same way.
+A launched pid is often a shim whose child owns the window, so the family is
+what a window must be matched against.
 """
 
 from __future__ import annotations

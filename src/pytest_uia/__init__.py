@@ -1,7 +1,7 @@
 """pytest-uia: Windows GUI acceptance testing through the accessibility tree.
 
 The names re-exported here are the whole public surface. Everything they are
-built from — locators, adapters, retry policies — is an implementation detail
+built from (locators, adapters, retry policies) is an implementation detail
 that a test should never have to name. Importing this module pulls in no
 Windows-only dependency: the UIA adapter is loaded when a session is first
 wired to a real desktop, not before.

@@ -3,8 +3,7 @@
 Where it plugs in: the same adapter every other UIA spec drives, aimed at the
 one widget that can hide an application from a test. A notebook shows one page
 and unmaps the rest, so without a way to change tabs a suite can only assert on
-whichever page the application happened to open with — for a settings window,
-that is one tab out of six.
+whichever page the application happened to open with.
 
 Both halves are needed and each is useless alone. `tk-uia` gives every tab a
 window handle so there is something in the tree to name; this plugin has to ask

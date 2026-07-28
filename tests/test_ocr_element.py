@@ -2,7 +2,7 @@
 
 No desktop and no recogniser here: what is specified is the wiring between a
 phrase's position and the mouse, including the case the whole retry machinery
-exists for — Windows refusing the click outright.
+exists for, Windows refusing the click outright.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pytest_uia.domain.text_match import Word
 
 # The adapter reaches WinRT and `uiautomation` the moment it is imported, so a
 # machine without the `ocr` extra skips this file rather than failing to
-# collect it — the same bargain every other spec that touches OCR makes.
+# collect it, the same bargain every other spec that touches OCR makes.
 ocr = pytest.importorskip("pytest_uia.adapters.ocr", reason="install pytest-uia[ocr]")
 
 _WHERE_THE_WORDS_WERE_READ = (120, 340)
@@ -61,7 +61,7 @@ class RefusedPointer:
 class RecordingWindow:
     """Test double: a window that remembers being brought to the front.
 
-    Carries `uiautomation`'s own PascalCase name on purpose — it stands in for
+    Carries `uiautomation`'s own PascalCase name on purpose, it stands in for
     one of its Controls, and renaming it would hide that. Answers True the way
     `SetActive` does when `SetForegroundWindow` worked.
     """
@@ -77,10 +77,9 @@ class RecordingWindow:
 class WindowThatStaysBehind:
     """Test double: a window Windows would not bring to the front.
 
-    The foreground lock bites for entirely ordinary reasons — another
-    application called `LockSetForegroundWindow`, or simply got there first —
-    with no integrity level involved, and `SetActive` then answers False having
-    done nothing at all.
+    The foreground lock bites for entirely ordinary reasons (another
+    application called `LockSetForegroundWindow`, or simply got there first),
+    and `SetActive` then answers False having done nothing at all.
 
     It still answers for its own caption, which is what tells it apart from a
     window whose application has exited: that one declines to come forward too,
@@ -132,7 +131,7 @@ def test_clicking_words_read_off_the_screen_aims_the_pointer_at_where_they_were(
     # When the test clicks it
     element.click()
 
-    # Then the window came forward first — a pointer hits whatever is on top —
+    # Then the window came forward first (a pointer hits whatever is on top),
     # and the click landed on the pixels the phrase was read from
     assert window.activations == 1, (
         "a click on a background window presses whatever is covering it"
@@ -177,15 +176,13 @@ def test_reading_a_window_that_will_not_come_forward_is_refused_rather_than_gues
     with pytest.raises(InputRefused):
         locator.find(TASK_CREATED)
 
-    # Then nothing was photographed and nothing was read. A grab of a covered
-    # window faithfully recognises whatever is covering it, and the miss that
-    # follows says "phrase not visible" about a phrase that is right there —
-    # the exact misleading failure class v0.1 removed for clicks
+    # Then nothing was photographed and nothing was read: a grab of a covered
+    # window recognises whatever is covering it
 
 
 def test_typing_into_something_ocr_located_is_refused_rather_than_attempted() -> None:
-    # Given a phrase read off the screen. It may be an input box, or the label
-    # beside one, or a word in a picture — nothing in the pixels says which
+    # Given a phrase read off the screen: an input box, the label beside one,
+    # or a word in a picture, and nothing in the pixels says which
     pointer = RecordingPointer()
     element = _element_clicked_through(pointer)
 
@@ -193,12 +190,8 @@ def test_typing_into_something_ocr_located_is_refused_rather_than_attempted() ->
     with pytest.raises(ocr.OcrTypingRefused) as refusal:
         element.type_text("Buy milk")
 
-    # Then nothing was clicked and nothing was typed. Clicking the recognised
-    # phrase and sending keys is the coin-flip the roadmap refuses outright:
-    # it puts the caret wherever clicking a *label* happens to put it, and the
-    # text then goes somewhere nobody chose. This is the same move the adapter
-    # already makes for an MSAA-proxy `Invoke` — decline a call that only
-    # pretends to work — turned on this package's own API
+    # Then nothing was clicked and nothing was typed: the keys would land
+    # wherever clicking a label happens to put the caret
     assert pointer.clicks == [], (
         "a call that cannot be honoured must not half-run before saying so"
     )
@@ -217,7 +210,7 @@ def test_typing_into_something_ocr_located_is_refused_rather_than_attempted() ->
     reason="Windows has no OCR language pack for any of this user's languages",
 )
 def test_recognising_pixels_works_on_a_thread_that_already_runs_an_event_loop() -> None:
-    # Given a thread with an event loop already running on it — which is every
+    # Given a thread with an event loop already running on it, which is every
     # thread inside a `pytest-asyncio` suite's async test
     async def read_from_inside_the_loop() -> list[Word]:
         return ocr.WindowsOcrReader().recognize(_A_BLANK_IMAGE)
@@ -225,10 +218,7 @@ def test_recognising_pixels_works_on_a_thread_that_already_runs_an_event_loop() 
     # When something reached from there asks OCR to read captured pixels
     words = asyncio.run(read_from_inside_the_loop())
 
-    # Then it answers. `asyncio.run` refuses to start a second loop on a thread
-    # that already has one, so recognition used to raise a bare RuntimeError
-    # about event loops — from outside the domain's error contract entirely,
-    # and in the one place a caller has no reason to suspect asyncio at all
+    # Then it answers, rather than a bare RuntimeError about a second loop
     assert words == [], "a blank image has no words in it"
 
 

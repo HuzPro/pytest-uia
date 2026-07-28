@@ -16,19 +16,9 @@ class Role(Enum):
     BUTTON = auto()
     TEXT = auto()
     TEXTBOX = auto()
-    # A notebook's tab. Added in 0.6.0 rather than at v1, and the distinction
-    # matters: this is not the locator being widened to accept a control type
-    # it used to reject. Tk's tabs were painted rather than exposed, so there
-    # was nothing in the tree to name — `tk-uia` 0.4.0 gives each one a window
-    # handle of its own, and a role that had nothing to match now has.
     TAB = auto()
-
-    # 0.7.0. Every one of these names a control type that was already being
-    # announced correctly to a screen reader and was reachable by nothing here:
-    # a survey of both Tk toolkits found 37 widgets typed and named, and 5 a
-    # test could ask for. Each is one control type, named the way somebody
-    # writing a test would say it rather than the way UI Automation spells it —
-    # `textbox` above set that precedent over `EditControl`.
+    # Each role is one control type, named the way somebody writing a test
+    # would say it rather than the way UI Automation spells it.
     CHECKBOX = auto()
     RADIO = auto()
     SLIDER = auto()

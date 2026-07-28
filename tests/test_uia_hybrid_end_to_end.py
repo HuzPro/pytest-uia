@@ -1,16 +1,7 @@
-"""The pitch, executed — and the proof of which half of it did the work.
+"""The whole chain over the fixture apps, and proof of which link did the work.
 
-Where it plugs in: the whole chain, over the fixture apps, end to end. Two of
-them expose an accessibility tree and one exposes nothing but paint, and the
-same journey drives all three without being told which is which.
-
-What this file now also exists to stop is a spec that passes while proving
-nothing. The chain returns the first answer, so the moment `tk_uia` made the Tk
-fixture accessible its pixel link stopped being consulted at all — and the one
-spec that used to live here, which asserted only that the journey passed, went
-on passing under a parameter id reading `tkinter-through-ocr` that had become a
-lie. **Passing is no longer the evidence. Which link answered is**, so the
-pixel link is wrapped in something that remembers being asked.
+Passing is not the evidence; which link answered is. The pixel link is wrapped
+in something that remembers being asked.
 """
 
 from __future__ import annotations
@@ -64,7 +55,7 @@ class CountingLocator:
 
     A Decorator over the real locator rather than a stand-in for it. The
     question is which link answered, and a chain whose last link is a stub
-    would answer a different one — the journey has to be able to succeed
+    would answer a different one, the journey has to be able to succeed
     through the pixels for `asked == 0` to mean anything at all.
     """
 
@@ -148,7 +139,7 @@ def _a_chain_whose_pixel_link_counts(app: App) -> WatchedChain:
 
     Deliberately assembled here rather than taken from the App the session
     hands back: that one is already built, and it offers no seam to slip a
-    double into — which is exactly the property that let the old spec go
+    double into, which is exactly the property that let the old spec go
     vacuous without anybody noticing.
     """
     # Imported inside the helper because the `ocr` extra may be absent, and a

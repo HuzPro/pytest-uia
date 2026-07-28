@@ -1,30 +1,10 @@
 """Adapter over Windows' built-in OCR engine: a window read as pixels.
 
-Where it plugs in: the last link of the chain a window builds for itself in
-:mod:`pytest_uia.adapters.uia`. UIA answers first, and this only ever runs for
-surfaces that expose nothing to answer with — Tk widgets, canvas-drawn UI,
-anything custom-painted.
-
-**OCR ignores `query.role`.** It can only see text, so it cannot know whether
-the phrase it matched was painted on a button, on a label, or in a picture.
-The concrete consequence: `app.textbox("Title")` resolved by OCR will match the
-*label* reading "Title" beside the box rather than the empty box itself, and
-typing then goes wherever clicking that label happens to put the caret. Roles
-are honoured by UIA, and by UIA alone.
-
-Recognition is handed to a fresh worker thread and waited for, which is the
-contingency this module's first version wrote down and did not need yet. Two
-constraints meet, and nothing on the calling thread satisfies both. `asyncio.run`
-refuses to start a second event loop on a thread that already has one, so every
-`pytest-asyncio` suite whose async test reached OCR got a bare `RuntimeError`
-about event loops out of a call with no visible connection to asyncio at all.
-And the WinRT operation's own blocking `get()` refuses to be called from a
-single-threaded apartment, which importing `uiautomation` has already put the
-calling thread into. A thread that has just been created has neither problem: no
-loop, and no apartment until something asks for one. Measured on a 460x280
-image, twenty rounds: 1.34 ms a recognition that way against 1.96 ms through
-`asyncio.run`, so the loop it no longer builds and tears down was costing more
-than the thread does.
+The last link of the locator chain; it runs only for surfaces UIA cannot
+answer for. **OCR ignores `query.role`**: it sees text alone, so roles are
+honoured by UIA and by UIA alone. Recognition runs on a fresh worker thread:
+`asyncio.run` breaks under a caller that already has an event loop, and the
+WinRT blocking `get()` refuses the STA that importing `uiautomation` created.
 """
 
 from __future__ import annotations
@@ -76,17 +56,10 @@ class OcrUnavailable(RuntimeError):
 class OcrTypingRefused(NotImplementedError):
     """Typing into something located in pixels was asked for, and declined.
 
-    Deliberately not an ElementNotFound: the chain absorbs those and reports a
-    missing element, which would blame the application for a call this package
-    refuses to make.
-
-    Refused rather than attempted for the reason the roadmap gives: OCR sees
-    text and nothing else, so it cannot tell an input box from the label beside
-    it, and clicking the phrase before sending keys puts the caret wherever
-    clicking a *label* happens to put it. That is the same class of pretence as
-    an `Invoke` the generic MSAA proxy advertises and cannot honour — a call
-    that returns cleanly, reaches nothing anybody chose, and leaves a test
-    passing or failing for reasons unrelated to the application.
+    Not an ElementNotFound: the chain absorbs those, which would blame the
+    application for a call this package refuses to make. Refused because OCR
+    cannot tell an input box from the label beside it, so the keys would land
+    wherever clicking a label puts the caret.
     """
 
 
@@ -152,10 +125,9 @@ class OcrLocator:
         )
 
     def _region_of_the_window_in_front(self) -> ScreenRegion:
-        # Nothing may overlap the window: a screen grab photographs whatever is
-        # on top, and OCR would then faithfully read the wrong application —
-        # which is why a window that would not come forward is refused rather
-        # than photographed anyway.
+        # Nothing may overlap the window: a grab photographs whatever is on
+        # top, so a window that would not come forward is refused rather than
+        # photographed anyway.
         bring_to_the_front(self._window)
         return _region_of(self._window)
 
@@ -207,8 +179,8 @@ class OcrElement:
             "nothing else, so it cannot tell an input box from the label "
             "beside it, and typing into what it matched would put the keys "
             "wherever clicking those words happened to put the caret. Give "
-            "the box an accessible name so UIA can see it — for a Tk "
-            "application that is `tk_uia.enable(root)` — or type through an "
+            "the box an accessible name so UIA can see it (for a Tk "
+            "application that is `tk_uia.enable(root)`), or type through an "
             "element UIA located instead"
         )
 

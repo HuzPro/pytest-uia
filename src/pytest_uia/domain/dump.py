@@ -35,9 +35,8 @@ _A_GAP = "  "
 _THE_WIDEST_COLUMN_WORTH_HAVING = 52
 _THE_WIDTH_OF_A_TERMINAL = 88
 _THE_NARROWEST_TAIL = 20
-# What to suggest when a limit bit. Nodes are cheap — the cost of raising the
-# cap is a longer page — so the suggestion is generous. Seconds are a person
-# waiting at a terminal, so that one is not.
+# What to suggest when a limit bit. Nodes are cheap, so the suggestion is
+# generous; seconds are a person waiting at a terminal, so that one is not.
 _A_LOT_MORE = 10
 _A_LOT_LONGER = 6
 
@@ -87,11 +86,8 @@ class _Tail:
     def is_a_paragraph(self) -> bool:
         """Whether it may be wrapped, which only the folded-chrome notice may.
 
-        The motivating failure: wrapping every tail broke the ambiguity notice
-        in half, and that notice ends in a query — which would then have been
-        split inside its own quoted name, where the break is invisible. Every
-        reason here is a single short sentence by design; the fold is the one
-        paragraph, and the only line long enough to need it.
+        Wrapping any other tail can split a query inside its own quoted name,
+        where the break is invisible.
         """
         return self.kind is _Kind.FOLDED
 
@@ -113,11 +109,8 @@ def _is_driven_by_the_mouse(node: TreeNode) -> bool:
 
 
 _MARKERS = (
-    # Worded as what pytest-uia will do, never as what the control supports.
-    # Measured: every title-bar button answers to this rule — its FrameworkId is
-    # empty, so the generic proxy speaks for it — and its Invoke works
-    # perfectly. A dump that claimed otherwise would be a false statement about
-    # somebody's application, printed by the tool they came to for the truth.
+    # Worded as what pytest-uia will do, never as what the control supports:
+    # a title-bar button is proxy-served and its Invoke works perfectly.
     _Marker(
         badge="[mouse]",
         meaning=(
@@ -154,8 +147,8 @@ class _Reading:
 
     node: TreeNode
     has_nothing_inside_it: bool
-    # Whether it is one of the controls Windows puts on every window, and — for
-    # the title bar itself — the names of the ones folded underneath it.
+    # Whether it is one of the controls Windows puts on every window, and, for
+    # the title bar itself, the names of the ones folded underneath it.
     is_window_chrome: bool
     folds: tuple[str, ...]
     # Every child window it sits in, outermost first. The last of them decides
@@ -273,12 +266,8 @@ _WHY_IT_STOPPED: dict[WalkEnded, Callable[[Dump], str]] = {
 def _the_legend_for(readings: Sequence[_Reading], folding: _Folding) -> list[str]:
     """What the markers mean, said once, and only for markers that appear.
 
-    Keyed off what this rendering *shows*, not off the whole walk. The
-    motivating failure came from a real window: measured against the WinForms
-    fixture, every title-bar button answers to the trust rule and none of its
-    own controls do — so a legend counted over the walk put four lines about
-    `[mouse]` under a tree with no `[mouse]` anywhere in it, and sent the reader
-    hunting for something the fold had taken away.
+    Keyed off what this rendering *shows*, not off the whole walk: a legend
+    counted over the walk can explain a badge the fold took off the page.
     """
     on_the_page = [reading for reading in readings if folding.shows(reading)]
     explained = [
@@ -299,10 +288,8 @@ def _the_queries_under(
 ) -> list[str]:
     """Every query this window authorises, gathered where a reader can copy them.
 
-    The empty case is the canvas fixture's, and it is replaced by the finding
-    rather than left blank: a heading over nothing reads like a bug in the
-    tool, when in fact it is the answer — this window has nothing a name-based
-    query can match, and the reader's next move is elsewhere.
+    The empty case is replaced by the finding rather than left blank: a
+    heading over nothing reads like a bug in the tool, when it is the answer.
     """
     found = _the_queries_of(readings, answering)
     if not found:
@@ -443,11 +430,9 @@ def _named(folded: Sequence[str]) -> str:
 def _where_the_tails_start(heads: Sequence[str]) -> int:
     """The column the queries line up in: the widest head, within reason.
 
-    Capped rather than unbounded because one control with a paragraph for a
-    name would otherwise push every query in the window off the right of the
-    terminal. Over-long heads keep their whole name and take the gap alone —
-    a name cut to fit the layout is a wrong answer to the only question this
-    feature exists to answer, and a silent one.
+    Capped so one control with a paragraph for a name cannot push every query
+    off the terminal. Over-long heads keep their whole name and take the gap
+    alone: a name cut to fit the layout is a silent wrong answer.
     """
     return min(max(len(head) for head in heads), _THE_WIDEST_COLUMN_WORTH_HAVING)
 

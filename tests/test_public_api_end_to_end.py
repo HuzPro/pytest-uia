@@ -1,6 +1,6 @@
 """The journey a user writes on their first day, driven exactly as they write it.
 
-Nothing in this module reaches past the public surface — no locators, no
+Nothing in this module reaches past the public surface, no locators, no
 adapters, no policies. If this reads awkwardly, the API is wrong.
 
 The journey runs against both fixture apps, and the point of that is that the

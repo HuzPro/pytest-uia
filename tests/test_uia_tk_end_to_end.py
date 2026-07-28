@@ -58,7 +58,7 @@ def test_a_tk_button_carrying_an_accessible_name_is_found_by_that_name_in_the_ac
     # When the button is looked up by the name a screen reader would announce
     button = locator.find(NEW_TASK_BUTTON)
 
-    # Then the control that answers is the button the user can see — which bare
+    # Then the control that answers is the button the user can see, which bare
     # Tk offers under no name at all, and so under no query at all
     assert button.read_text() == "New Task", (
         "the located control is not the button the fixture app shows"
@@ -78,7 +78,7 @@ def test_clicking_a_tk_button_found_in_the_tree_reaches_the_command_behind_it(
 
     # Then the Tk command behind it actually ran. Nothing weaker will do: the
     # button advertises an InvokePattern, and the proxy behind it accepts the
-    # call, returns no error and fires nothing — so a test that only checked
+    # call, returns no error and fires nothing, so a test that only checked
     # the click for an exception would pass having done nothing at all.
     status = poll(
         lambda: locator.find(TASK_CREATED_LABEL),
@@ -96,7 +96,7 @@ def test_typing_into_an_annotated_tk_entry_lands_in_the_widget_and_reads_back_th
 ) -> None:
     # Given the app's empty title box, reached through the same fluent element a
     # user's own suite writes against, and found by the name the application had
-    # to give it — an entry carries no words of its own to infer one from
+    # to give it, an entry carries no words of its own to infer one from
     title = tk_app.textbox(TITLE_TEXTBOX.name)
     assert title.read_text() == "", (
         "an entry nobody has typed into has to read as empty rather than as "
@@ -114,7 +114,7 @@ def test_typing_into_an_annotated_tk_entry_lands_in_the_widget_and_reads_back_th
     # widget the caret Tk would not hand over any other way, the keys landed in
     # it, its variable changed, `bind_value_variable` re-announced the new
     # value, and the tree gives it back. The driver absorbs the race between
-    # those steps, which is where it bites — the keys land before Tk's message
+    # those steps, which is where it bites, the keys land before Tk's message
     # pump has run, so without the wait the tree still reports the old value to
     # the assertion that follows the call which changed it
     assert settled.read_text() == A_DRAFT, (

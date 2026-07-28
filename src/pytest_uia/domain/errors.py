@@ -23,11 +23,8 @@ class WindowNotFound(Exception):
 class LaunchFailed(Exception):
     """The command a test launched was gone before it could own a window.
 
-    Deliberately not a WindowNotFound: that one means an application is still
-    starting and is worth waiting for, which is what a launch polls through.
-    This one means there is nothing left to wait for, so the whole ready
-    timeout would be spent proving something already settled — and the exit
-    code, which nobody was ever shown, is the entire diagnosis.
+    Not a WindowNotFound: there is nothing left to wait for, and the exit
+    code is the entire diagnosis.
     """
 
 
@@ -43,11 +40,8 @@ class ProcessStillRunning(Exception):
 class DialogNotFound(Exception):
     """No window with the caption a test addressed is open inside the application.
 
-    Deliberately not a WindowNotFound: that one means the application has
-    nothing on screen at all, and it is what a launch waits through. This is
-    raised by an app whose main window is right there, so the first suspect is
-    the step that was supposed to open the dialog — a click that reached
-    nothing, or a caption that is not the one on the title bar.
+    Not a WindowNotFound: the main window is right there, so the first suspect
+    is the step that was supposed to open the dialog.
     """
 
 
@@ -73,12 +67,7 @@ class TextNeverSettled(Exception):
 class InputRefused(Exception):
     """The desktop would not let this process reach the window under test.
 
-    Two shapes of the same refusal. Windows dropped the synthetic input this
-    process injected; or it would not bring the window to the front, so
-    anything aimed at that window would have reached whatever is covering it
-    instead — a click on somebody else's application, or a screen grab of one.
-
+    Dropped synthetic input, or a window that would not come to the front.
     Not a missing element: everything the test looked for was found, and the
-    desktop simply would not let it be touched. Reporting it as the former
-    sends whoever reads the failure looking for a control that is right there.
+    desktop simply would not let it be touched.
     """

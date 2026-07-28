@@ -1,9 +1,9 @@
 """Adapter over `mss`: a rectangle of the screen, as raw pixels.
 
 Where it plugs in: :mod:`pytest_uia.adapters.ocr` grabs the region a window
-occupies and hands the pixels to Windows' OCR engine. The format is chosen for
-that consumer — BGRA is what a `SoftwareBitmap` takes and what `mss` already
-produces, so no image library sits between the screen and the recogniser.
+occupies and hands the pixels to Windows' OCR engine. BGRA is what a
+`SoftwareBitmap` takes and what `mss` already produces, so no image library
+sits between the screen and the recogniser.
 """
 
 from __future__ import annotations

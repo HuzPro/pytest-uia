@@ -1,19 +1,8 @@
-"""Fixture app: one of every kind of control a test can now ask for.
+"""Fixture app: one of every kind of control a test can ask for, in one window.
 
-Where it plugs in: launched by `tests/conftest.py`, driven through the
-accessibility tree. Its job is the whole of 0.7.0 — every control type this
-plugin gained a query for, in one window, each named the way a real application
-would name it.
-
-Both halves are on show. `tk_uia.enable(root)` gives each widget its role, and
-the explicit `set_acc_name` calls give the ones with no words of their own a
-name: an entry's caption is a *sibling* label in Tk and nothing records the
-relationship, so no library can infer it. That second half is what an
-application adopting this has to write, and it is written out here in full
-rather than hidden in a helper.
-
-Classic `tk` where both toolkits have the widget, `ttk` for the four it alone
-has — the same rule `tk_app.py` follows, and for the same measured reason.
+`tk_uia.enable(root)` gives each widget its role; explicit `set_acc_name`
+calls name the ones with no words of their own. Classic `tk` where both
+toolkits have the widget, `ttk` for the four it alone has.
 """
 
 from __future__ import annotations

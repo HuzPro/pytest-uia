@@ -1,25 +1,9 @@
 """Adapter over Win32 synthetic input: the mouse, and Windows' answer about it.
 
-Where it plugs in: every element with no accessibility pattern left to ask acts
-through this port instead — everything OCR finds, and any UIA control whose
-provider refuses Invoke.
-
-The motivating failure: `uiautomation.Click` throws Windows' answer away. While
-a window owned by a higher-integrity process holds the foreground, User
-Interface Privilege Isolation drops every event a medium-integrity process
-injects — `SetCursorPos` returns 0 and the cursor does not move — and a click
-that never happened is then indistinguishable from one the application ignored.
-The test fails seconds later blaming the application, which did nothing wrong.
-
-The refusal is real, routine, and almost always transient (a background service
-briefly taking the foreground is enough), which is why the driver retries an
-`InputRefused` inside the element's implicit wait rather than failing on the
-first one. Only when it lasts the whole wait does it reach the reader — by then
-naming the window responsible, because nothing else on the machine will.
-
-`ctypes.windll` is reached lazily on purpose: this module has to import on the
-platforms that never call it, so the domain-only unit specs above it run in CI
-on Linux.
+Windows can silently drop injected input while another window holds the
+foreground, so every send checks the return value and raises `InputRefused`
+naming the foreground holder; the driver retries it inside the implicit wait.
+`ctypes.windll` is reached lazily so the module imports off Windows.
 """
 
 from __future__ import annotations
@@ -74,10 +58,8 @@ class CheckedPointer:
 class Win32Mouse:
     """The user32 calls a click is made of, with the answers they hand back.
 
-    Humble object by design: it holds no decision worth a unit test, only the
-    ctypes plumbing that cannot exist without a desktop. What it is *for* — the
-    refusal — is specified against :class:`CheckedPointer` with doubles, and
-    proven end to end by the gui specs.
+    Humble object: no decision worth a unit test, only ctypes plumbing. The
+    refusal is specified against :class:`CheckedPointer` with doubles.
     """
 
     def click_at(self, x: int, y: int) -> bool:
@@ -90,7 +72,7 @@ class Win32Mouse:
     def foreground_holder(self) -> str:
         window = _foreground_window()
         if window is None:
-            # Windows answers NULL while no window on this desktop is active —
+            # Windows answers NULL while no window on this desktop is active:
             # mid-switch, or with a secure desktop (UAC, the lock screen) up.
             return "a window this process cannot see (the workstation may be locked)"
         return f"{_class_name_of(window)!r} (pid {_process_behind(window)})"

@@ -1,14 +1,8 @@
 """Behavioral spec for reading a window that has nothing to read in its tree.
 
-The window is the canvas fixture, whose entire interface is painted with
-`create_text` and reaches the accessibility tree as one anonymous pane with no
-children. Its accessible sibling was driving these specs until `tk_uia` gave
-Tk widgets names, at which point every sentence here was about a window that
-had an accessibility tree after all.
-
-Every spec drives the OCR locator directly, never through the chain, so what is
-proven is that the pixels really were recognised — not that some other link
-answered first.
+The canvas fixture reaches the tree as one anonymous pane. Every spec drives
+the OCR locator directly, never through the chain, so what is proven is that
+the pixels really were recognised.
 """
 
 from __future__ import annotations
@@ -44,7 +38,7 @@ TASK_CREATED_STATUS = Query(role=Role.TEXT, name="task created")
 UNPAINTED_BUTTON = Query(role=Role.BUTTON, name="Delete Everything")
 
 # The app repaints on its own message pump, so its reaction lands well after
-# the click that caused it has returned — and every look costs a screen grab
+# the click that caused it has returned, and every look costs a screen grab
 # and a recognition pass, which is why the interval is not the domain default.
 _REACTION_POLICY = RetryPolicy(timeout=10.0, interval=0.5)
 
@@ -82,7 +76,7 @@ def test_the_canvas_window_exposes_nothing_a_name_based_query_could_reach(
     # When the tree is asked for the control every other fixture answers for
     # Then it has nothing to answer with. Without this, a well-meaning edit
     # that made this window accessible would leave the specs below passing
-    # against a chain that never reaches the pixels at all — the same vacuity
+    # against a chain that never reaches the pixels at all, the same vacuity
     # they were re-pointed here to escape, one layer down.
     with pytest.raises(ElementNotFound):
         tree.find(NEW_TASK_BUTTON)
@@ -120,7 +114,7 @@ def test_clicking_text_found_by_ocr_reaches_the_handler_behind_those_pixels(
     # Given a button that is nothing but a caption and an outline someone drew
     button = tk_text.find(NEW_TASK_BUTTON)
 
-    # When it is clicked where those pixels were read — retried while the
+    # When it is clicked where those pixels were read, retried while the
     # desktop refuses the pointer, because the adapter is one-shot by contract
     # and waiting is always the caller's job here
     with skipped_when_windows_refuses_synthetic_input():

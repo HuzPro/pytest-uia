@@ -1,15 +1,7 @@
-"""Behavioral spec for every kind of control a test can ask for.
+"""Behavioral spec for every kind of control a test can ask for, in one window.
 
-Where it plugs in: one window holding one of each, driven through the same
-adapter as every other UIA spec. A survey of both Tk toolkits found 37 widgets
-typed and named and 5 a test could reach; these are the specs that closed that,
-and they are the only thing standing between the role table and a query that
-looks right and finds nothing.
-
-Reads only, apart from the checkbox. Clicking every control in a window would
-be a spec about the mouse; the interesting claim is that each one can be
-*found*, and — for the one control whose state a test genuinely needs to assert
-on — that the state can be read back after acting on it.
+Reads only, apart from the checkbox: the claim is that each one can be found,
+and that toggle state can be read back after acting on it.
 """
 
 from __future__ import annotations
@@ -93,7 +85,7 @@ def test_a_control_of_the_wrong_kind_is_refused_by_a_query_for_another(
             locator.find(Query(role=wrong, name=NOTIFY_ME))
 
     # Deliberately not asked of `app.button(...)`, which is the whole chain: its
-    # second link reads pixels, and pixels have no roles. Measured — the OCR
+    # second link reads pixels, and pixels have no roles. Measured, the OCR
     # fallback finds the words "Notify me" painted on that checkbox and answers
     # a query for a button with them. That is the documented behaviour of the
     # fallback and not a defect in the role table, so the role's own claim is

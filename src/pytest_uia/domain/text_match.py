@@ -1,8 +1,8 @@
 """Finding a phrase among words an OCR pass reported, and where it sits.
 
 The pure half of the OCR fallback. `adapters/ocr.py` recognises pixels into
-`Word`s and turns the `Box` this returns into a click point; everything in
-between — the matching itself — lives here, with no screen anywhere near it.
+`Word`s and turns the `Box` this returns into a click point; the matching
+itself lives here, with no screen anywhere near it.
 """
 
 from __future__ import annotations

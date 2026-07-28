@@ -1,7 +1,7 @@
 # Roadmap
 
 Direction: the thing that makes this plugin worth having is that a locator is a
-*query* rather than a picture — so every item below either extends what can be
+*query* rather than a picture, so every item below either extends what can be
 queried, or removes a reason someone has to drop out of the query world and back
 into coordinates. Breadth of widget support comes second to that, and speed comes
 a distant third: a gui suite is bounded by the application's own repaint, not by
@@ -9,7 +9,7 @@ anything in here.
 
 ## Shipped in v0.5
 
-The accessibility tree dump — the answer to the first question anyone
+The accessibility tree dump, the answer to the first question anyone
 actually has, in the tool they already have installed.
 
 - **`app.dump()` and `dialog.dump()`**, plus
@@ -18,7 +18,7 @@ actually has, in the tool they already have installed.
   would find it*, which is what turns a diagnostic into a copy-paste answer.
   It returns a `Dump`: `str()` for the tree, `.queries` for the same list as
   data, `.with_window_chrome()` to unfold the title bar. It does not print by
-  itself — printing from a library call is a side effect a diagnostic should
+  itself, printing from a library call is a side effect a diagnostic should
   not have, and under pytest it would vanish into captured output anyway.
 
 - **It does not quietly omit what it cannot see**, and that governed every
@@ -28,7 +28,7 @@ actually has, in the tool they already have installed.
   and name the call that lifts them. There is **no depth limit**, refused
   rather than deferred: `uiautomation`'s `maxDepth` gives no signal that it
   pruned anything, and a browser window at depth 8 yields 1486 of its 5437
-  controls in total silence — which is precisely the failure everything above
+  controls in total silence, which is precisely the failure everything above
   exists to prevent.
 
 - **Both limits are needed, and this was measured.** A node cap bounds how
@@ -44,19 +44,19 @@ actually has, in the tool they already have installed.
   untrusted-provider rule and its `Invoke` works perfectly. A dump that told
   users their application was broken would be worse than no dump. The same
   care applies to the AutomationId, which is shown and captioned as
-  unqueryable — for WinForms it is HWND-derived and different on every launch.
+  unqueryable, for WinForms it is HWND-derived and different on every launch.
 
 - **The sibling in-process dump in `tk-uia`, and the diff nobody built.**
   `tk-uia` reports what an application wrote into its own annotation ledger;
   this reports what Windows will tell another process. The two disagreeing is
   the best possible diagnostic for a widget that was annotated and still
-  cannot be found — and comparing them spans two repositories, so it is a
+  cannot be found, and comparing them spans two repositories, so it is a
   `probes/` script or a written recipe, deliberately not a feature of either
   package.
 
 ## Shipped in v0.4
 
-Child modal dialogs — and a correction to what this roadmap used to say about
+Child modal dialogs, and a correction to what this roadmap used to say about
 them.
 
 - **`app.dialog(title)`**, which waits for a child window to open and answers
@@ -70,19 +70,19 @@ them.
   It said "a window is resolved once, at launch, and a dialog that opens
   afterwards is invisible to the driver". It never was. Tk owns a `Toplevel` at
   the Win32 level whether or not it is `transient`, so UI Automation nests it
-  inside its owner's subtree, and `UiaLocator` searches the whole subtree — a
+  inside its owner's subtree, and `UiaLocator` searches the whole subtree, a
   button that exists only in a dialog was findable through `app.button(...)` in
   v0.1. What was actually missing was narrower and worse: **no way to say which
   window a query meant**. Both windows in the fixture app carry a button named
   `Confirm`, and `app.button("Confirm")` resolves to one of them by an accident
-  of z-order — measured, the dialog's, and the main window's the moment it
+  of z-order, measured, the dialog's, and the main window's the moment it
   closes. A first-run wizard is a sequence of steps that reuse `Next`, `Back`
   and `OK`, so a suite driving one could not express "the OK **in this dialog**"
   at all.
 
 - **The scope is a real narrowing, and a spec proves it.** Searching starts at
   the dialog's own control, not at the main window's, so the main window's
-  controls are out of reach from inside a dialog — which is what a naive
+  controls are out of reach from inside a dialog, which is what a naive
   implementation gets wrong, and what `tests/test_dialog_end_to_end.py` fails on
   when the scoping is backed out. `tk-uia` needed no changes: its `<Map>`
   binding sits on the `all` bindtag, so a `Toplevel` built long after
@@ -94,8 +94,8 @@ One call for the wait every asynchronous GUI forces on its tests.
 
 - **`element.wait_until_text_is(expected, timeout=None)`**, polling through the
   same implicit wait as everything else and re-resolving the element on every
-  look. Timing out raises `TextNeverSettled` — the element was found, its text
-  never settled — carrying both what it read and what was expected.
+  look. Timing out raises `TextNeverSettled` (the element was found, its text
+  never settled) carrying both what it read and what was expected.
 
 - **The scaffolding it replaced was deleted**, and the Tk fixture app took up
   `tk-uia`'s new `bind_value_variable` in place of a hand-written variable
@@ -120,7 +120,7 @@ fixture set that makes it visible which link of the chain answered.
 - **The untrusted-provider rule.** An action pattern served by the generic MSAA
   proxy is not attempted at all: `Invoke` and `SetValue` there succeed and reach
   nothing, so the mouse and keyboard do the work instead. Reads stay ungated.
-- **Three fixture applications**, the third of them deliberately inaccessible —
+- **Three fixture applications**, the third of them deliberately inaccessible,
   a canvas-drawn Tk window with zero UIA children, so the pixel path keeps real
   coverage now that Tk no longer provides it.
 - **Specs that count which link answered**, rather than only that the journey
@@ -139,7 +139,7 @@ window with a rich accessibility tree and one without.
   never pays for it.
 - **One authority on waiting.** Adapters look once; only the driver retries, inside
   the element's implicit wait (`--uia-timeout`, default 5 s, overridable per call).
-- **Windows' built-in OCR**, through the pywinrt projections — no Tesseract, no
+- **Windows' built-in OCR**, through the pywinrt projections, no Tesseract, no
   install, no model download.
 - **Honest refusal of synthetic input.** A click Windows drops is now
   distinguishable from a click the application ignored; see the README.
@@ -149,19 +149,19 @@ window with a rich accessibility tree and one without.
 ## Next
 
 - **Querying by AutomationId.** The dump shows it; no query can search by it.
-  Worth having only for frameworks that set one deliberately — WPF, and any
-  application calling `tk_uia.set_automation_id` — because measured, WinForms
+  Worth having only for frameworks that set one deliberately (WPF, and any
+  application calling `tk_uia.set_automation_id`) because measured, WinForms
   derives it from the window handle and it differs on every launch. Which is
   also why the dump captions it rather than offering it as a query.
 - **Dump on failure.** A pytest hook attaching `app.dump()` to the report of a
   test that could not find a control. It is the same shape as screenshot on
-  failure, below, and wants the same `--uia-*-dir` plumbing — so they get done
+  failure, below, and wants the same `--uia-*-dir` plumbing, so they get done
   together or not at all.
 - **Dialogs within dialogs, and pinning a dialog to the window it opened as.**
   `App.dialog` addresses a child of the main window; a `Browse…` sheet opened
   from a wizard step is a child of *that* step, and reaching it means `Dialog`
   growing the same call. Not built because nothing has needed it yet, and
-  because a dialog's scope already includes its own children — so the ambiguity
+  because a dialog's scope already includes its own children, so the ambiguity
   only returns when two nested windows reuse a caption. Which is exactly where
   the second half of this item bites: `Dialog` remembers its *caption*, not the
   window it was handed, so `wait_closed` re-searches by name and a second
@@ -186,9 +186,9 @@ window with a rich accessibility tree and one without.
 - **`--uia-trust-invoke={auto,always,never}`.** The rule that decides whether a
   provider's action patterns can be believed is a hardcoded set of framework
   ids, and overriding it means editing the package. It will be wrong in one
-  direction or the other eventually — a toolkit that honours `Invoke` and is not
+  direction or the other eventually, a toolkit that honours `Invoke` and is not
   on the list, or a proxied control whose `Invoke` really does reach its
-  application — and an escape hatch is cheaper than a release. `auto` is what
+  application, and an escape hatch is cheaper than a release. `auto` is what
   ships today; `never` is a suite that would rather click everything than risk a
   silent no-op; `always` is somebody who has measured their own app and knows
   better.
@@ -200,11 +200,11 @@ window with a rich accessibility tree and one without.
   sanitising.
 - **Trial the gui suite on a GitHub Windows runner.** The gui specs are
   local-only today. Whether a hosted runner offers a desktop that accepts
-  foreground changes and synthetic input reliably enough to be a gate — rather
-  than a source of the exact flakiness v0.1 spent its budget removing — is an
+  foreground changes and synthetic input reliably enough to be a gate (rather
+  than a source of the exact flakiness v0.1 spent its budget removing) is an
   open question that deserves an experiment rather than an assumption.
 - **Keyboard injection that reports refusal.** Clicks surface Windows' refusal,
-  and since 0.4.1 so does a window that would not come to the front — which is
+  and since 0.4.1 so does a window that would not come to the front, which is
   the step in front of every keystroke, so a great deal of the silence is
   gone. What is left is the injection itself: `SendKeys` has no return value to
   inspect, so a keystroke Windows drops after the window *did* come forward is
@@ -217,7 +217,7 @@ These are deliberate omissions, not oversights. Each would be a reasonable
 addition later; none is missing by accident.
 
 - **Widgets:** what is *inside* a list, a tree or a menu. The widgets themselves
-  came off this list in 0.7.0 — fifteen roles, from `checkbox` to `tab_strip` —
+  came off this list in 0.7.0, fifteen roles, from `checkbox` to `tab_strip`,
   after a survey of every Tk widget class found 37 typed and named and 5 a test
   could ask for. Their rows and items need MSAA's `IAccessible` child-id model,
   which is a COM server and a different piece of work; `app.listbox(...)` finds
@@ -225,7 +225,7 @@ addition later; none is missing by accident.
 - **Interactions:** drag-and-drop, right-click, double-click, keyboard chords,
   scrolling.
 - **Assertions:** image-diff comparisons. If a test needs to compare pixels, this
-  is the wrong tool — see the README's table.
+  is the wrong tool, see the README's table.
 - **OCR-targeted `type_text`.** OCR cannot see roles, so it cannot distinguish an
   input box from the label beside it; typing into something it located is a
   coin-flip dressed up as an API. **Refused in code since 0.4.1**, not merely

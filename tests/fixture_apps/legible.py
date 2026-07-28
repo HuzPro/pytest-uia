@@ -30,7 +30,7 @@ def paint_at_physical_pixel_resolution() -> None:
 
     A process that is not DPI-aware gets its window bitmap-stretched by Windows
     on a scaled display. The text a test then reads back is a blurred copy of
-    text that was rendered for a smaller screen — and every coordinate the
+    text that was rendered for a smaller screen, and every coordinate the
     accessibility tree reports for it is in somebody else's pixels.
     """
     ctypes.windll.shcore.SetProcessDpiAwareness(_PER_MONITOR_DPI_AWARE)

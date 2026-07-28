@@ -1,21 +1,8 @@
 """Behavioral spec for driving an application that is no longer there.
 
-The everyday shape of it: a test's own click lands on Quit, or the app under
-test crashes on the step being exercised, and the next line of the test asks
-the driver a question about a window whose provider has gone with it.
-
-Reproduced against this fixture before it was fixed — launch, kill, query — the
-answers were `_ctypes.COMError: (-2147220991, 'An event was unable to invoke
-any of the subscribers', ...)` out of `exists()` and out of `App.title` alike:
-from the call documented as answering True or False for both directions of
-assertion, and from a package whose errors module promises that a test never
-has to read an HRESULT.
-
-This spec drives the whole stack rather than doubles, because the parts it
-covers — the accessibility-tree search, the pixel search behind it, and the
-child-window search — all build their own `uiautomation` objects and cannot be
-handed a control that misbehaves. The doubles that cover the rest are in
-`test_uia_dead_window.py`.
+Whole stack rather than doubles: the searches build their own `uiautomation`
+objects and cannot be handed a control that misbehaves. The doubles that cover
+the rest are in `test_uia_dead_window.py`.
 """
 
 from __future__ import annotations
@@ -56,7 +43,7 @@ def app_that_has_died(winforms_app: App) -> App:
 
     Ended through `close()` rather than shot, because that is the ordinary way
     a suite meets this: the last step of a journey clicks Quit. What is left
-    behind — a window handle whose provider has died — is exactly what a crash
+    behind (a window handle whose provider has died) is exactly what a crash
     leaves behind too.
     """
     pid = winforms_app.pid
@@ -89,7 +76,7 @@ def test_a_query_against_an_application_that_has_died_answers_rather_than_raisin
     present = app_that_has_died.button("New Task").exists(timeout=0.0)
 
     # Then it gets something to assert on. Both links of the chain are walked
-    # here — the accessibility tree first, then the pixels — and each of them
+    # here (the accessibility tree first, then the pixels) and each of them
     # was reaching a window that is not there any more
     assert present is False, (
         "`exists()` promises True or False for both directions of assertion, "
@@ -119,6 +106,6 @@ def test_asking_a_dead_application_whether_a_dialog_is_open_answers_rather_than_
     up = app_that_has_died.has_dialog(SETTINGS, timeout=0.0)
 
     # Then no dialog is open, which is the truth about an application that has
-    # exited — and the answer `has_dialog` exists to give instead of an
+    # exited, and the answer `has_dialog` exists to give instead of an
     # exception a caller would have to catch
     assert up is False, "a dead application has no dialogs on screen"

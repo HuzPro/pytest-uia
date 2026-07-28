@@ -2,7 +2,7 @@
 
 Sits behind the `gui` fixture: a test asks a session for an app, and the
 session guarantees that nothing it started is still on screen once the test
-ends. Knows nothing about pytest, and nothing about Windows either — the
+ends. Knows nothing about pytest, and nothing about Windows either: the
 desktop arrives as a port.
 """
 
@@ -135,10 +135,8 @@ class GuiSession:
 
     def _whatever_window_it_paints(self, process: LaunchedProcess) -> WindowUnderTest:
         # The window is looked for first and the process only questioned when
-        # there was none, because a launcher that exits the moment the real
-        # application is up — `cmd /c`, a console-script shim, a `.bat` — has
-        # done nothing wrong. An exit is evidence of failure only when there is
-        # no window to be found.
+        # there was none: a launcher that exits once the real application is up
+        # (`cmd /c`, a console-script shim, a `.bat`) has done nothing wrong.
         try:
             return self._desktop.window_of_process(process.pid)
         except WindowNotFound:
@@ -156,8 +154,8 @@ def session_on_this_desktop(*, policy: RetryPolicy = DEFAULT_POLICY) -> GuiSessi
     """Composition root: a session wired to the real Windows desktop.
 
     The UIA adapter is imported here rather than at module scope so that
-    importing this package — which pytest does on every platform the moment the
-    plugin is installed — never requires `uiautomation` to be present.
+    importing this package (which pytest does on every platform the moment the
+    plugin is installed) never requires `uiautomation` to be present.
     """
     from pytest_uia.adapters.uia import UiaDesktop
 
@@ -169,12 +167,9 @@ def _refuse_to_wait_for_a_command_that_is_already_over(
 ) -> None:
     """Fail now, with the exit code, rather than out-waiting a dead process.
 
-    The motivating failure: `gui.launch([sys.executable, "-c", "sys.exit(3)"])`
-    spent the entire ready timeout — thirty seconds by default — and then
-    reported `WindowNotFound: no visible top-level window for pid 19940`, about
-    a process that had been dead almost immediately, mentioning neither the
-    exit nor its code. That is the first wall every newcomer with a typo in a
-    command path walks into.
+    Without this, a command that exits immediately spends the whole ready
+    timeout and reports `WindowNotFound`, mentioning neither the exit nor its
+    code.
     """
     code = process.exit_code()
     if code is None:
@@ -190,7 +185,7 @@ def _whatever_happens(step: Callable[[], None]) -> None:
     # app after it would be left on the next test's screen.
     try:
         step()
-    except Exception as failure:  # noqa: BLE001 — see above; every step must run
+    except Exception as failure:  # noqa: BLE001
         # Blind is not the same as silent. An app that could not be ended goes
         # on to poison every test after it, and this teardown is the only place
         # that knows which run left it there.

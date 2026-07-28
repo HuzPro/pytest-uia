@@ -89,9 +89,9 @@ class UnpaintedControl(RecordingControl):
 class ControlTheDesktopRefusesInputFor(RecordingControl):
     """Test double: a control Windows will not let this process touch yet.
 
-    The refusal belongs to the desktop rather than to the control — while a
+    The refusal belongs to the desktop rather than to the control (while a
     higher-integrity window holds the foreground, nothing this process injects
-    reaches anything — but it surfaces at exactly this seam.
+    reaches anything) but it surfaces at exactly this seam.
     """
 
     def __init__(self, accepted_from_attempt: int) -> None:
@@ -157,7 +157,7 @@ class ChainThatCatchesUpOnAttempt:
     """Test double: a UI that only re-announces a typed value after N looks.
 
     A brand-new control every lookup, because that is what a window which has
-    repainted hands back — an element held across a wait would go on reading
+    repainted hands back, an element held across a wait would go on reading
     the value the application has already replaced.
     """
 
@@ -183,7 +183,7 @@ class ChainThatNeverFinds:
 
     def find(self, query: Query) -> RecordingControl:
         self.queries.append(query)
-        raise ElementNotFound(f"{query} — nothing on screen matches")
+        raise ElementNotFound(f"{query} -- nothing on screen matches")
 
 
 class ChainThatFindsOnAttempt:
@@ -196,7 +196,7 @@ class ChainThatFindsOnAttempt:
     def find(self, query: Query) -> RecordingControl:
         self.queries.append(query)
         if len(self.queries) < self._succeeds_on_attempt:
-            raise ElementNotFound(f"{query} — not painted yet")
+            raise ElementNotFound(f"{query} -- not painted yet")
         return RecordingControl()
 
 
@@ -367,10 +367,9 @@ def _app_whose_window_is(window: FakeWindow, policy: RetryPolicy = _NO_PAUSE) ->
     )
 
 
-# Every role added in 0.7.0: the enum member, the control type the UIA adapter
-# maps it to, and the call a test writes. One list, because the three have to
-# agree — a query nobody can spell is as useless as a control type nobody asks
-# for, and they drift the moment they live in three places.
+# Every role a test can ask for: the enum member, the control type the UIA
+# adapter maps it to, and the call a test writes. One list, because the three
+# drift the moment they live in three places.
 EVERY_ROLE_A_TEST_CAN_ASK_FOR = [
     ("CHECKBOX", "CheckBoxControl", "checkbox"),
     ("RADIO", "RadioButtonControl", "radio"),
@@ -441,7 +440,7 @@ def test_reading_whether_a_checkbox_is_checked_asks_the_control_it_resolves_to()
     # When the test asks whether it is checked
     # Then it answers from the control, not from what the test last did to it.
     # A suite that clicked and assumed is a suite that passes when the click
-    # went nowhere — which on Tk it silently can.
+    # went nowhere, which on Tk it silently can.
     assert checkbox.is_checked() is True
 
 
@@ -910,7 +909,7 @@ def test_waiting_for_text_hands_back_the_element_so_an_interaction_can_follow_it
     # When the test waits for the text and acts on the result in one breath
     title.wait_until_text_is(A_TYPED_DRAFT).click()
 
-    # Then the click landed, because the wait returned the element itself —
+    # Then the click landed, because the wait returned the element itself,
     # the same shape `wait_visible` already has
     assert control.clicks == 1, (
         "wait_until_text_is has to be chainable, or every use of it needs a temporary"
@@ -1116,7 +1115,7 @@ def test_waiting_for_a_dialog_to_close_returns_once_the_application_has_dismisse
     settings.wait_closed()
 
     # Then it kept looking until the window went away, rather than believing the
-    # click that dismissed it — the dialog outlives that click by however long
+    # click that dismissed it, the dialog outlives that click by however long
     # the application takes to notice
     assert len(window.dialogs_looked_up) == 3, (
         f"a dialog still closing must be waited out, not failed on after "
@@ -1169,7 +1168,7 @@ def test_dumping_an_app_walks_the_window_it_was_launched_against() -> None:
     dump = app.dump()
 
     # Then the dump is of that window's own controls. The locator chain is not
-    # consulted at all — a dump answers what is *there*, which is exactly the
+    # consulted at all, a dump answers what is *there*, which is exactly the
     # question a reader has when the chain has just failed them
     assert 'app.button("New Task")' in dump.queries, (
         f"the app must dump the window it was launched against: {dump.queries}"

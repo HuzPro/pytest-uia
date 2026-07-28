@@ -1,8 +1,8 @@
 """End-to-end spec for the `gui` fixture, run the way a user would run it.
 
 Each spec writes a miniature project into tmp_path, runs a real `pytest` there
-against the installed plugin, and then — from outside that run, once it is
-over — asks Windows whether the app it launched is still alive. Nothing short
+against the installed plugin, and then (from outside that run, once it is
+over) asks Windows whether the app it launched is still alive. Nothing short
 of a separate process can prove that, which is why these are not unit tests.
 """
 

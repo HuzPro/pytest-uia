@@ -1,24 +1,9 @@
 """Fixture app: a Tk window that says who its widgets are.
 
-Where it plugs in: launched as a subprocess by `tests/conftest.py`, then driven
-from the pytest process through the accessibility tree — the same tree, and the
-same adapter, that the WinForms fixture is driven through. `tk_uia.enable()` is
-what makes that possible: bare Tk puts every widget in the tree under no name
-and mostly the wrong control type, so a query by name and role matches nothing
-at all.
-
-Classic `tk` throughout, never `ttk`: measured across all fifteen themed widget
-types, each arrives as an anonymous `PaneControl` and `ttk.Button` has no
-InvokePattern, so ttk is strictly the worse starting point.
-
-The journey is the WinForms fixture's journey widget for widget — a title box,
-a "New Task" trigger, and a status line that becomes "task created" — because
-the whole point of the project is that one test body drives both.
-
-On top of that it opens a modal `Toplevel`, which the WinForms fixture does not,
-because that is the shape a first-run wizard has: a dialog whose Confirm carries
-the same accessible name as a Confirm on the window underneath it. Two controls
-answering one query is what makes "which window did you mean" a question at all.
+Launched by `tests/conftest.py` and driven through the same adapter as the
+WinForms fixture; `tk_uia.enable()` is what makes that possible. It also opens
+a modal `Toplevel` whose Confirm shares its accessible name with one on the
+window underneath, so "which window did you mean" is a question.
 """
 
 from __future__ import annotations
@@ -45,8 +30,8 @@ TASK_CREATED = "task created"
 OPEN_SETTINGS = "Open Settings"
 SETTINGS = "Settings"
 FOLDER = "Folder"
-# Deliberately on both windows. A wizard reuses its captions from step to step —
-# Next, Back, OK — and this is the smallest honest version of that collision.
+# Deliberately on both windows. A wizard reuses its captions from step to step
+# (Next, Back, OK), and this is the smallest honest version of that collision.
 CONFIRM = "Confirm"
 MAIN_CONFIRMED = "main confirmed"
 SETTINGS_SAVED = "settings saved"
@@ -74,7 +59,7 @@ def main() -> None:
     widgets = _a_window_of_classic_tk_widgets()
     # Realised and mapped before accessibility is switched on. `<Map>` fires
     # once, on the way up, so everything already showing is annotated by
-    # `enable()`'s own sweep instead — which is the path any application that
+    # `enable()`'s own sweep instead, which is the path any application that
     # builds its window first will take.
     widgets.root.update()
 
@@ -155,7 +140,7 @@ def _a_modal_settings_dialog(root: tk.Tk, status: tk.StringVar) -> None:
     """Open the first-run wizard's one step: a Toplevel that owns the keyboard.
 
     `transient` plus `grab_set` is what makes this a dialog rather than a second
-    window, and it is the shape the driver has to cope with — Tk owns the window
+    window, and it is the shape the driver has to cope with, Tk owns the window
     at the Win32 level, so UI Automation nests it inside its owner's subtree and
     a search that starts at the main window reaches straight into it.
     """
@@ -222,7 +207,7 @@ def _accessibility_switched_on(root: tk.Tk) -> None:
 def _the_things_no_widget_can_say_for_itself(widgets: Widgets) -> None:
     # An entry has no `-text` to be named from, and a name invented from its Tk
     # path would be worse than no name at all, so this is the application's job
-    # — exactly as the WinForms fixture sets `AccessibleName` on its own
+    # , exactly as the WinForms fixture sets `AccessibleName` on its own
     # textbox, and for exactly the same reason.
     tk_uia.set_acc_name(widgets.title_entry, TITLE)
     # A name and a value are different properties, and neither follows the

@@ -1,29 +1,14 @@
 """Adapter over the `uiautomation` package: the Windows accessibility tree.
 
-This is the only module allowed to import `uiautomation`. The domain stays
-stdlib-only so it can be reasoned about, and unit tested, with no desktop at
-all. `UiaLocator` and `UiaElement` are GoF Adapters: they present the domain's
-Locator and Element ports in terms of UIA controls and patterns.
+The only module allowed to import `uiautomation`; the domain stays stdlib-only.
+`UiaLocator` and `UiaElement` are GoF Adapters over the domain's ports.
 
-Three rules hold for everything below.
-
-An untrusted provider can be *read*, but not *driven*. Where a control's owner
-never wrote a UIA provider, Windows fabricates one out of the old MSAA API, and
-that bridge advertises patterns it cannot honour: on an owner-drawn widget
-`Invoke` and `SetValue` return cleanly and reach nothing. Reading is a different
-matter — a name or a value served out of an annotation store is the
-application's own word about itself — so only the *acting* half is gated.
-
-Every search is one-shot. Left alone, `uiautomation` retries inside `Exists`
-and waits ten seconds inside any property access on a control it has not found
-yet; underneath the domain's own `poll` that turns each configured timeout into
-a multiple of itself. Passing `maxSearchSeconds=0` keeps `poll` the single
-authority on waiting.
-
-All UIA work happens on the calling thread, which in v1 means the main thread.
-`uiautomation`'s `UIAutomationInitializerInThread(debug=True)` calls
-`threading.currentThread()`, removed in Python 3.12, so moving UIA off the main
-thread is a trap rather than an optimisation.
+Three rules hold below. An MSAA-bridged provider is read but never driven: the
+bridge advertises `Invoke`/`SetValue` it cannot honour, so only acting is
+gated. Every search is one-shot (`maxSearchSeconds=0`); waiting belongs to
+`poll` alone. All UIA work stays on the calling thread:
+`UIAutomationInitializerInThread` uses `threading.currentThread()`, removed in
+Python 3.12.
 """
 
 from __future__ import annotations
@@ -62,11 +47,8 @@ _LOOK_ONCE = 0  # maxSearchSeconds: waiting is poll()'s job, not the library's
 # never implemented a provider of its own.
 _THE_GENERIC_PROXY = "Microsoft: MSAA Proxy"
 
-# Measured, not assumed: WinForms is served by that same proxy and its buttons
-# are owner-drawn exactly like Tk's, so neither the marker nor the window style
-# separates them. The framework does — 'WinForm' against Tk's 'Win32' — because
-# behind the proxy these toolkits implement IAccessible themselves, and a
-# BM_CLICK they never see is not how their controls are reached.
+# WinForms sits behind the same proxy with owner-drawn buttons of its own, but
+# implements IAccessible itself; the Framework property is what separates them.
 _FRAMEWORKS_THAT_ANSWER_FOR_THEMSELVES = frozenset(
     {
         "WinForm",
@@ -83,18 +65,7 @@ _CONTROL_TYPE_FOR_ROLE = {
     Role.BUTTON: auto.ControlType.ButtonControl,
     Role.TEXT: auto.ControlType.TextControl,
     Role.TEXTBOX: auto.ControlType.EditControl,
-    # The first entry added since 0.1.0, and it is an addition rather than the
-    # loosening this table exists to refuse. Widening `Role.TEXT` to accept a
-    # `PaneControl` would match every anonymous ttk widget in a window; naming
-    # the control type a tab really has matches tabs. The tree changed under
-    # this table — Tk's tabs were paint until `tk-uia` gave them handles — and
-    # a table that never learns a new control type could not follow it.
     Role.TAB: auto.ControlType.TabItemControl,
-    # 0.7.0. One line each, and the reverse map below derives from this one, so
-    # widening what a query can find and widening what a dump offers a query for
-    # stay a single edit. Every control type here was measured coming out of a
-    # real Tk window: see tk-uia's COVERAGE.md, which is regenerated rather than
-    # written.
     Role.CHECKBOX: auto.ControlType.CheckBoxControl,
     Role.RADIO: auto.ControlType.RadioButtonControl,
     Role.SLIDER: auto.ControlType.SliderControl,
@@ -112,10 +83,7 @@ _CONTROL_TYPE_FOR_ROLE = {
     Role.TAB_STRIP: auto.ControlType.TabControl,
 }
 
-# Derived rather than written out again, so that widening what a query can find
-# and widening what a dump offers a query for stay the same edit. A dump that
-# promised `app.button(...)` for a control type the locator does not search
-# would be handing out a line that cannot work.
+# Derived so that widening a query and widening the dump stay one edit.
 _ROLE_FOR_CONTROL_TYPE = {
     control_type: role for role, control_type in _CONTROL_TYPE_FOR_ROLE.items()
 }
@@ -127,17 +95,9 @@ def reporting_a_dead_window_as(
 ) -> Iterator[None]:
     """Translate the HRESULT a destroyed window answers with into a domain miss.
 
-    The motivating failure: an application that goes away mid-test — it
-    crashed, or the test's own click landed on Quit — leaves every control
-    under it holding a provider that is no longer there, and `comtypes` reports
-    each property access as a raw `COMError`. `exists()`, documented as
-    answering True or False for both directions of assertion, raised one; so
-    did `App.title`; and the retry loop built to absorb exactly this kind of
-    staleness never saw a domain error it recognised, so nothing retried and
-    nothing explained.
-
-    Shared with the OCR adapter, which grabs and clicks through the same window
-    control and dies in the same way.
+    A window that dies mid-test answers `COMError` to every property access,
+    which no retry loop recognises. Shared with the OCR adapter, which grabs
+    and clicks through the same window control.
     """
     try:
         yield
@@ -148,34 +108,15 @@ def reporting_a_dead_window_as(
 def bring_to_the_front(window: auto.Control) -> None:
     """Put the window under test in front, and refuse to go on if it stayed put.
 
-    `SetActive` answers whether `SetForegroundWindow` worked, and every caller
-    here used to throw that answer away. The foreground lock has entirely
-    ordinary reasons to bite — another application called
-    `LockSetForegroundWindow`, or simply got there first — with no integrity
-    level involved anywhere; the fixture apps dodge it with `-topmost` and a
-    user's application does not.
-
-    Carrying on regardless produces the two failures this project exists to
-    refuse. The mouse presses coordinates another application now owns, which
-    is a dropped click impersonating a delivered one. And a screen grab
-    photographs whatever is covering the window, after which OCR faithfully
-    reports "phrase not visible" about a phrase that is right there.
-
-    `InputRefused` because that is how a desktop that will not co-operate
-    already flows: the driver retries it inside the implicit wait, which is the
-    right answer for a foreground race, and reports it against the deadline
-    when it lasts.
+    `SetActive`'s answer must not be discarded: after a failed foreground
+    change the mouse presses coordinates another application owns, and a grab
+    photographs whatever is covering the window. `InputRefused` so the driver
+    retries a foreground race inside the implicit wait.
     """
     if window.SetActive():
         return
-    # Naming the window in the refusal is the discriminator rather than
-    # decoration. Measured: a window whose application has exited answers False
-    # here too, because its native handle has become 0 and `SetActive` declines
-    # a control it no longer considers top-level — and that needs the opposite
-    # report, since a foreground race is transient and an exited application is
-    # not. Reading the caption separates them, because a dead provider raises
-    # the HRESULT `reporting_a_dead_window_as` translates, and every caller of
-    # this function is inside one of those blocks.
+    # A dead window answers False here too. Reading the caption separates the
+    # two: a dead provider raises, and `reporting_a_dead_window_as` translates.
     raise InputRefused(_it_would_not_come_forward(window.Name))
 
 
@@ -190,9 +131,7 @@ def _it_would_not_come_forward(name: str) -> str:
 
 
 def _the_window_is_gone(window: auto.Control) -> str:
-    # The caption is asked for defensively rather than read, because the only
-    # reason to be building this string is that something stopped answering —
-    # and the caption comes from the same provider that just refused.
+    # Asked defensively: the caption comes from the provider that just refused.
     try:
         which = f" {window.Name!r} (pid {window.ProcessId})"
     except COMError:
@@ -204,8 +143,8 @@ def resolve_main_window(pid: int) -> auto.Control:
     """Find the one visible top-level window a launched application owns.
 
     "Owns" means the launched process *or anything it started*. The pid a
-    launch reports is often a shim — a virtual environment's `python.exe`, a
-    console-script wrapper, a `.bat` — that runs the real application as a
+    launch reports is often a shim (a virtual environment's `python.exe`, a
+    console-script wrapper, a `.bat`) that runs the real application as a
     child, and the window then belongs to a pid the caller never saw.
 
     Deliberately unconstrained by control type: a Tk toplevel is not a
@@ -221,9 +160,8 @@ def resolve_main_window(pid: int) -> auto.Control:
     )
     if not search.Exists(maxSearchSeconds=_LOOK_ONCE):
         raise WindowNotFound(f"no visible top-level window for pid {pid}")
-    # A search hands back a bare Control wrapper. The window's real class — and
-    # with it SetActive, which only top-level controls have — comes from asking
-    # the element what it actually is.
+    # A search hands back a bare Control wrapper; asking the element what it
+    # is restores the real class, and with it SetActive.
     return auto.Control.CreateControlFromElement(search.Element)
 
 
@@ -244,10 +182,9 @@ def visible_top_level_titles(desktop: auto.Control) -> tuple[str, ...]:
     """The captions on screen right now, for when an exact match found nothing.
 
     The usual reason a `--title` misses is a caption that is close but not the
-    one on the title bar, and a list of what is actually there is the cheapest
-    possible answer to that. Filtered exactly as `resolve_main_window` filters
-    — named, and not offscreen — and one level deep, so that every line of it
-    is a caption `--title` would have matched.
+    one on the title bar. Filtered exactly as `resolve_main_window` filters
+    (named, and not offscreen) and one level deep, so that every line of it is
+    a caption `--title` would have matched.
     """
     return tuple(
         control.Name
@@ -259,14 +196,9 @@ def visible_top_level_titles(desktop: auto.Control) -> tuple[str, ...]:
 def resolve_dialog_titled(window: auto.Control, title: str) -> auto.Control:
     """Find a child window of `window` by the caption on its own title bar.
 
-    Constrained to WindowControl on purpose. Measured, a Tk `Toplevel` opened
-    with `transient()` and `grab_set()` arrives as a WindowControl one level
-    under its owner — but so does every label, and without the constraint a
-    caption that also appears as a word somewhere in the window would answer
-    instead, handing back a "dialog" with no children a test could ever explain.
-
-    Depth is left open, because how deeply a toolkit nests an owned window is
-    the toolkit's business and not this function's.
+    Constrained to WindowControl on purpose: without it, a caption that also
+    appears as a word somewhere in the window answers instead. Depth is left
+    open; how deeply a toolkit nests an owned window is its own business.
     """
     with reporting_a_dead_window_as(DialogNotFound, window):
         search = auto.Control(
@@ -332,10 +264,8 @@ class ProviderTrust(Protocol):
 class RealProvidersOnly:
     """The generic MSAA proxy synthesises Invoke from a posted BM_CLICK.
 
-    Against an owner-drawn Tk button that is a message into the void: no
-    exception, no click, and a test that passes having done nothing. Measured
-    against a real click counter, `InvokePattern.Invoke()` and
-    `LegacyIAccessible.DoDefaultAction()` both return cleanly and fire nothing.
+    Against an owner-drawn Tk button both `Invoke` and `DoDefaultAction`
+    return cleanly and fire nothing, so the proxy is never trusted to act.
     """
 
     def acts_for_real(self, control: object) -> bool:
@@ -380,10 +310,8 @@ class UiaElement:
             self._type_where_clicking_puts_the_caret(text)
 
     def read_text(self) -> str:
-        # Deliberately ungated by provider trust. An untrusted provider can be
-        # read but not driven: a property served out of an annotation store is
-        # the application's own word for itself, and only the *actions* are
-        # guesses about a control the proxy cannot really reach.
+        # Ungated by provider trust: a reported property is the application's
+        # own word; only actions through an untrusted proxy are guesses.
         with reporting_a_dead_window_as(ElementNotFound, self._window):
             if self._holds_editable_text():
                 return self._whatever_the_value_pattern_holds()
@@ -392,13 +320,9 @@ class UiaElement:
     def is_checked(self) -> bool:
         """Whether this control's TogglePattern currently reads as on.
 
-        Ungated by provider trust for the same reason `read_text` is: a state
-        the provider reports is a fact about the control, where an *action*
-        through the same provider is a guess about one it cannot reach.
-
-        A control with no TogglePattern answers False rather than raising. It is
-        the honest answer to "is this checked" for something that cannot be —
-        and the query that found it already refused everything of the wrong role.
+        Ungated by provider trust, like `read_text`: a reported state is a
+        fact, an action is a guess. A control with no TogglePattern answers
+        False rather than raising.
         """
         with reporting_a_dead_window_as(ElementNotFound, self._window):
             pattern = self._control.GetPattern(auto.PatternId.TogglePattern)
@@ -421,10 +345,8 @@ class UiaElement:
     def _whatever_the_value_pattern_holds(self) -> str:
         pattern = self._control.GetPattern(auto.PatternId.ValuePattern)
         if pattern is None:
-            # `GetPattern` answers None rather than raising, so an edit control
-            # whose provider never offered one escaped as a bare AttributeError
-            # — which is not an ElementNotFound, so poll() never retried it and
-            # the driver never caught it.
+            # GetPattern answers None rather than raising; without this branch
+            # a provider with no ValuePattern surfaces a bare AttributeError.
             return self._control.Name
         # An empty value is an answer, and it is kept. An annotated Tk entry
         # nobody has typed into really is empty, and reporting its label's name
@@ -455,10 +377,8 @@ class UiaElement:
         self._control.SendKeys(text, charMode=True)
 
     def _type_where_clicking_puts_the_caret(self, text: str) -> None:
-        # A Tk widget owns focus within its toplevel through Tk's own model, so
-        # Win32 focus on its child HWND is not Tk focus, and asking the tree for
-        # it hands the caret to nobody. Clicking is what is left — which is
-        # exactly what OcrElement does, for exactly the same reason.
+        # Win32 focus on a Tk child HWND is not Tk focus, so clicking is what
+        # places the caret; OcrElement does the same for the same reason.
         self._click_with_the_mouse()
         self._control.SendKeys(text, charMode=True)
 
@@ -474,9 +394,8 @@ class UiaElement:
 
 
 def _how_the_provider_describes_itself(control: object) -> str:
-    # Asked with getattr rather than read: absence of evidence of proxying is
-    # trust, which is what keeps every control that answers no such question at
-    # all — and every test double — on the fast path.
+    # getattr, not attribute read: a control that answers no such question,
+    # and every test double, stays on the trusted fast path.
     return str(getattr(control, "ProviderDescription", ""))
 
 
@@ -508,9 +427,7 @@ def _owned_and_on_screen(
 def _locators_for(window: auto.Control) -> list[Locator]:
     """The accessibility tree first, always; pixels only if nothing answered.
 
-    OCR joins the chain only when the `ocr` extra is installed, so a project
-    that never needs it never pays for it — and one that installs it gets the
-    fallback with nothing to configure.
+    OCR joins the chain only when the `ocr` extra is installed.
     """
     locators: list[Locator] = [UiaLocator(window)]
     if _windows_ocr_is_installed():
@@ -536,15 +453,13 @@ def _the_controls_under(
 ) -> Walk:
     """Read the window's subtree in pre-order, and stop when a limit says so.
 
-    Eager, returning a tuple rather than a generator: the result is bounded by
-    construction, and a generator would hold a COM enumeration open across
-    arbitrary caller code and put the `COMError` translation on the consumer's
-    stack instead of at this boundary — which is the contract 0.4.1 fixed.
+    Eager rather than a generator: the result is bounded by construction, and
+    a generator would put the `COMError` translation on the consumer's stack
+    instead of at this boundary.
     """
-    # Checked between controls, and it can be nothing else: a provider is
-    # inside a `GetFirstChildControl` call for as long as it likes, and nothing
-    # on this thread can interrupt it. Measured, `Program Manager` spends 4.1
-    # seconds in exactly one such call. The budget bounds the walk, not a call.
+    # Checked between controls: a provider can sit inside GetFirstChildControl
+    # indefinitely (Program Manager: 4.1 s in one call), so the budget bounds
+    # the walk, not a call.
     deadline = time.monotonic() + limits.budget
     nodes: list[TreeNode] = []
     ended = WalkEnded.FINISHED
@@ -572,12 +487,8 @@ def _read_as_a_node(
 ) -> TreeNode:
     """One control, or the fact that it stopped answering for itself.
 
-    Caught per node rather than around the walk, because the two failures need
-    opposite reports. A window whose application has exited raises out of the
-    *iteration*, and there is nothing left to dump; a single control destroyed
-    while the dump was being taken raises out of a property read, and throwing
-    away the four hundred controls that did answer would be the worse answer of
-    the two. Dropping it silently would be worse still.
+    Caught per node: one control dying mid-dump must not discard everything
+    that did answer, and dropping it silently would be worse.
     """
     try:
         return _everything_it_says_about_itself(control, depth, trust)
@@ -588,10 +499,8 @@ def _read_as_a_node(
 def _everything_it_says_about_itself(
     control: auto.Control, depth: int, trust: ProviderTrust
 ) -> TreeNode:
-    # No `GetPattern` anywhere. Measured, probing Invoke and Value costs
-    # 0.19 ms a node against 0.17 ms for the trust rule, and "does it advertise
-    # Invoke" is precisely the question that rule exists because you cannot
-    # believe the answer to.
+    # No GetPattern probing: the trust rule is cheaper, and "does it advertise
+    # Invoke" is the question whose answer cannot be believed.
     return TreeNode(
         control_type=control.ControlTypeName,
         name=control.Name,

@@ -13,7 +13,7 @@ from typing import Protocol
 from pytest_uia.domain.errors import ElementNotFound
 from pytest_uia.domain.query import Query
 
-_QUERY_FROM_MISSES = " — "
+_QUERY_FROM_MISSES = " -- "
 _BETWEEN_MISSES = "; "
 
 

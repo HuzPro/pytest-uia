@@ -1,16 +1,8 @@
 """`python -m pytest_uia --title "..."`: dump a window that is already on screen.
 
-Where it plugs in: a thin shell over the same `attach` and `dump` a test makes.
-It exists because the person this feature is for has an application in front of
-them and no test yet, and "first write a test" is the wall the dump was built
-to remove.
-
-Imports pytest nowhere, and reaches Windows only through the composition root
-at the bottom, so parsing and running are both specified with no desktop.
-
-No console-script entry point on purpose: `python -m` always runs in the
-virtual environment the user is already in, and a `pytest-uia` script would be
-one more thing that can be on the wrong PATH.
+A thin shell over the same `attach` and `dump` a test makes. No console-script
+entry point on purpose: `python -m` always runs in the virtual environment the
+user is already in.
 """
 
 from __future__ import annotations
@@ -54,9 +46,8 @@ class Request:
 class Screen(Protocol):
     """As much of the desktop as a command line needs.
 
-    A port rather than a direct call so that both halves of the run — the
-    window that was found and the window that was not — are specified with no
-    desktop at all.
+    A port rather than a direct call, so both halves of the run are specified
+    with no desktop at all.
     """
 
     def attach(self, title: str, timeout: float) -> Dumpable: ...
@@ -85,8 +76,7 @@ def run(request: Request, screen: Screen) -> int:
 
 def _nothing_is_called_that(title: str, on_screen: Sequence[str]) -> str:
     # The captions are listed because titles are matched exactly, so the
-    # overwhelmingly likely cause of a miss is one that is nearly right — and
-    # "no such window" on its own leaves the reader nothing to correct.
+    # likely cause of a miss is one that is nearly right.
     return "\n".join(
         [
             f"no visible top-level window titled {title!r}. On screen right now:",
@@ -109,8 +99,7 @@ def parsed(argv: Sequence[str] | None = None) -> Request:
 class ThisDesktop:
     """Composition root: the real session, and the real list of windows.
 
-    The UIA adapter is reached only through `session_on_this_desktop`, which
-    defers its import, and through the one inside `captions` — so importing
+    The UIA adapter is reached only through deferred imports, so importing
     this module, and `--help` with it, needs no Windows at all.
 
     `attach` is deliberately the same call a test makes, and a session that did

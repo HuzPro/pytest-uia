@@ -89,11 +89,9 @@ class AppProcess:
     def terminate(self, grace_seconds: float = _DEFAULT_GRACE_SECONDS) -> None:
         """Escalate through ruder and ruder ways of ending the process.
 
-        Every rung gets the grace period to work, and the ladder stops at the
-        first one that leaves nothing running. Running out of rungs raises:
-        this used to fall off the end of the loop and return as though it had
-        worked, so an app that survived `taskkill /t /f` stayed on the next
-        test's screen with nothing anywhere saying which run left it there.
+        Every rung gets the grace period to work. Running out of rungs raises:
+        returning quietly would leave a surviving app on the next test's
+        screen with no record of which run left it there.
         """
         for request_exit in self._escalating_exit_requests():
             request_exit()

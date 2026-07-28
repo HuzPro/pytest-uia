@@ -162,7 +162,7 @@ def test_launch_waits_for_the_process_to_own_a_window_before_handing_back_an_app
 def test_launching_a_command_that_dies_at_once_fails_with_the_code_it_died_with() -> (
     None
 ):
-    # Given a command that exits before it could ever have painted anything —
+    # Given a command that exits before it could ever have painted anything:
     # a typo in the path, an import error, a wrapper script returning non-zero
     desktop = DesktopShowingNothing()
     launcher = RecordingLauncher(exits_with=3)
@@ -232,7 +232,7 @@ def test_one_app_that_cannot_be_shut_down_does_not_strand_the_others() -> None:
     launcher.started[0].refuse_to_die()
 
     # When the test that owned them ends. The wedged app complains on its way
-    # past — that is the sibling spec's subject, and caught here so this one's
+    # past, that is the sibling spec's subject, and caught here so this one's
     # warning does not surface in every unrelated run of the suite.
     with pytest.warns(UserWarning, match=str(_FIRST_PID)):
         session.shutdown_all()
@@ -255,8 +255,8 @@ def test_shutdown_says_out_loud_which_app_it_could_not_end() -> None:
     with pytest.warns(UserWarning, match=str(_FIRST_PID)) as complaints:
         session.shutdown_all()
 
-    # Then teardown carried on — blind by design, so one bad app strands none of
-    # the others — but it did not carry on silently. An app left running poisons
+    # Then teardown carried on (blind by design, so one bad app strands none of
+    # the others) but it did not carry on silently. An app left running poisons
     # every test after it, and the run that caused it is the only one that knows
     assert complaints, "a leak nobody is told about is a leak nobody looks for"
 

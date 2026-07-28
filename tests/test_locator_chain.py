@@ -128,7 +128,7 @@ def test_element_not_found_reports_the_query_and_every_locator_that_missed() -> 
 
     # Then the failure names what was sought and what each locator saw instead
     assert str(miss.value) == (
-        "Button 'New Task' — "
+        "Button 'New Task' -- "
         "NoAccessibilityTreeLocator: no match under window 'Fixture' (pid 1234); "
         "NoVisibleTextLocator: phrase not visible"
     ), "the enriched message is the only debugging aid a failing gui test leaves behind"

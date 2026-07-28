@@ -1,8 +1,8 @@
 """Behavioral spec for what UiaElement does when the UIA patterns let it down.
 
 Plenty of apps worth testing expose a half-built accessibility tree: a control
-with no InvokePattern, an edit box whose provider fails the call, and — worst
-of the three — one that advertises a pattern, accepts the call, returns no
+with no InvokePattern, an edit box whose provider fails the call, and (worst
+of the three) one that advertises a pattern, accepts the call, returns no
 error and does nothing. These specs use doubles, because a control that
 misbehaves exactly when asked is not something a real fixture app can offer.
 
@@ -35,7 +35,7 @@ _ITS_CENTRE = (60, 40)
 
 # What the two fixture windows really report, with the pids that change on
 # every run elided. The generic proxy serves both of them, so its marker alone
-# separates nothing — the framework behind it is what says whether there is a
+# separates nothing, the framework behind it is what says whether there is a
 # provider under the proxy that will honour the call.
 _TK_DESCRIPTION = (
     "Main:Nested [... Annotation(parent link):Microsoft: Annotation Proxy ...; "
@@ -138,9 +138,8 @@ class WinFormsControl(InvokingControl):
 class UnbackedEditControl(PatternlessControl):
     """Test double: an edit control whose provider never offered a value.
 
-    `uiautomation.GetPattern` answers None rather than raising, so this used to
-    escape as a bare AttributeError — which `poll` does not retry and the
-    driver does not catch.
+    `GetPattern` answers None rather than raising; unhandled, that surfaces as
+    a bare AttributeError nothing retries.
     """
 
     ControlType = auto.ControlType.EditControl
@@ -180,7 +179,7 @@ class JournallingPointer:
 class ProxiedTextBox:
     """Test double: a Tk entry, as the generic MSAA proxy describes one.
 
-    It advertises a value pattern — annotating the role is what creates one —
+    It advertises a value pattern (annotating the role is what creates one),
     and `SetValue` on it is `put_accValue` into the same void the proxy's
     Invoke goes into.
     """
@@ -205,7 +204,7 @@ class ProxiedTextBox:
 class RecordingWindow:
     """Test double: a window that remembers being brought to the front.
 
-    Answers True the way `SetActive` does when `SetForegroundWindow` worked —
+    Answers True the way `SetActive` does when `SetForegroundWindow` worked:
     the answer is the whole point of asking, and a double that returned nothing
     would stand for a window whose position on screen is unknown.
     """
@@ -222,8 +221,8 @@ class WindowThatStaysBehind:
     """Test double: a window Windows would not bring to the front.
 
     Nothing exotic about it. The foreground lock bites for entirely ordinary
-    reasons — another application called `LockSetForegroundWindow`, or simply
-    got there first — with no integrity level involved, and `SetActive` then
+    reasons (another application called `LockSetForegroundWindow`, or simply
+    got there first) with no integrity level involved, and `SetActive` then
     answers False having done nothing.
 
     It still answers for its own caption, which is what tells it apart from a
@@ -316,7 +315,7 @@ def test_a_control_served_by_the_msaa_proxy_is_clicked_with_the_mouse_rather_tha
 def test_a_control_served_by_a_real_provider_is_invoked_and_never_touched_by_the_mouse() -> (
     None
 ):
-    # Given a WinForms control — served by the same generic proxy, and backed
+    # Given a WinForms control, served by the same generic proxy, and backed
     # by a framework that honours the call anyway
     control = WinFormsControl()
     pointer = RecordingPointer()
@@ -348,7 +347,7 @@ def test_a_control_served_by_the_msaa_proxy_is_typed_into_by_clicking_it_first_t
     element.type_text(_A_DRAFT)
 
     # Then the value pattern was left alone, and the caret was put where the
-    # keys were about to land — a Tk widget owns focus within its toplevel
+    # keys were about to land, a Tk widget owns focus within its toplevel
     # through Tk's own model, so Win32 focus on its child HWND is not focus,
     # and clicking it is the only thing that gives it the caret
     assert journal.acts == [f"clicked {_ITS_CENTRE}", f"typed {_A_DRAFT!r}"], (

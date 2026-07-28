@@ -163,7 +163,7 @@ def test_the_winforms_button_is_still_invoked_through_its_pattern_rather_than_cl
     # and it reacted to the pattern, not to a pointer. WinForms is served by
     # the same generic MSAA proxy Tk is, so this is the one spec that fails if
     # provider detection ever mistakes a framework that honours Invoke for one
-    # that only pretends to — a misfire that costs nothing but correctness,
+    # that only pretends to, a misfire that costs nothing but correctness,
     # since the mouse works too, right up until the desktop refuses it.
     assert pointer.clicks == [], (
         f"the mouse was used on a control that can be invoked: {pointer.clicks}"
@@ -193,7 +193,7 @@ def test_the_desktop_adapter_finds_a_launched_apps_window_and_searches_inside_it
     # The only spec in this module that reaches for the Tk fixture app, which
     # annotates itself with `tk_uia` and exits if it cannot. Without the guard a
     # missing dev dependency kills the app during its own imports and surfaces
-    # here as a thirty-second "no visible top-level window" — a failure that
+    # here as a thirty-second "no visible top-level window", a failure that
     # says nothing whatever about what is actually absent.
     reason="install tk-uia: the Tk fixture app annotates itself with it",
 )

@@ -47,7 +47,7 @@ def test_the_command_line_asks_for_the_window_that_was_named_on_it() -> None:
     request = parsed(argv)
 
     # Then that is what will be attached to, matched exactly as `gui.attach`
-    # matches — the same call a test would make
+    # matches, the same call a test would make
     assert request == Request(title=A_WINDOW_ON_SCREEN), (
         f"everything else has a default; the window does not: {request}"
     )
@@ -77,7 +77,7 @@ def test_the_command_line_prints_the_captions_on_screen_when_no_window_matches_t
 
     # Then it says so and lists what is there. Captions are matched exactly, so
     # the overwhelmingly likely cause of a miss is a title that is nearly right
-    # — and "no such window" alone leaves the reader with nothing to correct
+    # , and "no such window" alone leaves the reader with nothing to correct
     reported = capsys.readouterr().out
     assert "no visible top-level window titled 'Notepad'" in reported, (
         f"the caption that missed has to be quoted back: {reported}"
@@ -166,7 +166,7 @@ def test_the_command_line_can_ask_for_the_window_chrome_the_dump_folds_away(
 
     # Then the folded controls are lines of their own. The fold names the
     # method that undoes it, and a reader at a terminal has no object to call
-    # it on — so the flag is what makes that promise true for them
+    # it on, so the flag is what makes that promise true for them
     printed = capsys.readouterr().out
     assert 'app.button("Close")' in printed, (
         f"a fold a command-line reader cannot undo is not reversible: {printed}"
