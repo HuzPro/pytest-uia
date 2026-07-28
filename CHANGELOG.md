@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 - 2026-07-28
+
+No library code changed.
+
+- **Publishing is a tag push.** `.github/workflows/publish.yml` builds and
+  uploads to PyPI through Trusted Publishing on any `v*` tag, and refuses a tag
+  whose number differs from `__version__`. No API token is stored anywhere.
+  `RELEASING.md` documents the flow.
+
 ## 0.7.0 — 2026-07-27
 
 Fifteen new roles, and a survey that explains why they were needed. Reading

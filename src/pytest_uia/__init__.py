@@ -23,7 +23,7 @@ from pytest_uia.domain.errors import (
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.tree import DumpLimits, TreeNode, WalkEnded
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 __all__ = [
     "App",
