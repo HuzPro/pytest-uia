@@ -247,4 +247,3 @@ addition later; none is missing by accident.
 - **Elevated processes.** Driving a window that runs at a higher integrity level
   than the test process requires the test process to be elevated too, and a
   testing tool that asks for administrator is a testing tool nobody runs.
-- **Publishing to PyPI.** Out of scope for v1 by decision, not by omission.

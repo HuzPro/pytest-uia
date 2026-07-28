@@ -37,13 +37,8 @@ that list; it is not any more, and
 
 ## Quickstart
 
-pytest-uia is **not on PyPI** — publishing is out of scope for v1 (see [ROADMAP](ROADMAP.md)).
-Install it from a clone:
-
 ```bash
-git clone https://github.com/HuzPro/pytest-uia
-cd pytest-uia
-pip install -e ".[ocr]"     # drop [ocr] if you never need the pixel fallback
+pip install "pytest-uia[ocr]"     # drop [ocr] if you never need the pixel fallback
 ```
 
 Then, in your own suite:
@@ -447,7 +442,7 @@ widgets are, and Windows will carry it: MSAA lets a process annotate the accessi
 properties of its own windows through `IAccPropServices`, and UI Automation reads those
 annotations back out through a proxy that takes priority over the plain one.
 [`tk-uia`](https://github.com/HuzPro/tk-uia) — a sibling project, MIT, zero runtime
-dependencies, not on PyPI — is one call:
+dependencies — is one call:
 
 ```python
 import tk_uia
@@ -622,7 +617,7 @@ lock the workstation (a locked session has no interactive desktop to inject into
 Menus, comboboxes, checkboxes and radios, tables and trees, drag-and-drop, right- and
 double-click, keyboard chords, scrolling, dialogs opened from inside another dialog,
 image-diff assertions, OCR-targeted `type_text`, non-built-in OCR engines, non-Windows,
-elevated processes, PyPI publishing. See [ROADMAP](ROADMAP.md) for what is deferred and
+elevated processes. See [ROADMAP](ROADMAP.md) for what is deferred and
 what is refused outright.
 
 ## Launching apps that are really launchers
@@ -679,7 +674,7 @@ cd pytest-uia
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 uv pip install -e ".[dev,ocr]"     # or: pip install -e ".[dev,ocr]"
-uv pip install -e ..\tk-uia        # the sibling repo (>= 0.2.0), cloned beside this one
+uv pip install tk-uia              # what the Tk fixture app annotates itself with
 
 pytest -m "not gui" -q             # instant; no windows, runs on any platform
 pytest -m gui -q                   # drives real windows — hands off the mouse
@@ -691,7 +686,7 @@ ruff format --check src tests
 
 `tk-uia` is a **test-time** dependency and nothing more: it is what the Tk fixture app
 calls to give its own widgets names and roles, so it belongs to the fixture rather than
-to the plugin. It is not on PyPI either, hence the path install. Without it, every spec
+to the plugin. Without it, every spec
 that drives the Tk fixture skips with `install tk-uia` rather than failing — the app
 would otherwise die during its own imports, and a skip that names the missing package
 beats a `LaunchFailed` that can only report the exit code it died on.
