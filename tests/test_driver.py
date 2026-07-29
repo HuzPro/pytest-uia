@@ -529,8 +529,6 @@ EVERY_ROLE_A_TEST_CAN_ASK_FOR = [
     ("SEPARATOR", "SeparatorControl", "separator"),
     ("THUMB", "ThumbControl", "thumb"),
     ("TAB_STRIP", "TabControl", "tab_strip"),
-    # The web vocabulary: what Chromium (and so every Electron app) projects
-    # rows, links and menus into the tree as.
     ("LIST_ITEM", "ListItemControl", "list_item"),
     ("TREE_ITEM", "TreeItemControl", "tree_item"),
     ("MENU_ITEM", "MenuItemControl", "menu_item"),

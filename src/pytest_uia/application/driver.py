@@ -273,9 +273,7 @@ class UIElement(ElementQueries):
     def scroll_into_view(self, *, timeout: float | None = None) -> UIElement:
         """Put the element's pixels on screen, where a click can land.
 
-        Provider calls only: no mouse wheel, no keyboard, no foreground
-        change. Works on an element that is in the tree; a virtualised row
-        the provider has not materialised is not in the tree to be asked.
+        Provider calls only: no mouse wheel, no keyboard, no foreground change.
         """
         self._within_the_implicit_wait(
             lambda: self._one_that_matches().scroll_into_view(), timeout

@@ -191,9 +191,8 @@ def _saved_and_dismissed(dialog: tk.Toplevel, status: tk.StringVar) -> None:
 
 
 def _accessibility_switched_on(root: tk.Tk) -> None:
-    # Any strategy that puts the widgets in the tree serves these specs;
-    # only UNSUPPORTED leaves them exactly as bare Tk, which a suite that
-    # asserted "the name is right" would report as an ordinary driver miss.
+    # Any strategy that puts the widgets in the tree serves these specs; only
+    # UNSUPPORTED leaves them exactly as bare Tk left them.
     strategy = tk_uia.enable(root)
     if strategy is Strategy.UNSUPPORTED:
         raise SystemExit(

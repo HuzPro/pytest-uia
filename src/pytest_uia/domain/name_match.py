@@ -87,10 +87,5 @@ def matching(pattern: str) -> Matching:
 
 
 def by_id(automation_id: str) -> ById:
-    """Address a control by its AutomationId instead of its name.
-
-    Worth using only where an application sets one deliberately (WPF `x:Name`,
-    a web page's DOM id, `tk_uia.set_automation_id`): WinForms derives ids
-    from window handles, differently on every launch.
-    """
+    """Address a control by its AutomationId; the README's `id=` note says when."""
     return ById(automation_id)

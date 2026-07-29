@@ -46,8 +46,7 @@ EVERY_CONTROL_IN_THE_GALLERY = [
     ("scrollbar", "Scroll the results"),
     ("group", "Details"),
     ("image", "Activity sparkline"),
-    # tk-uia's provider serves a Menubutton as a plain button, so the gallery
-    # no longer carries a SplitButtonControl for the split_button role.
+    # tk-uia's provider serves a Menubutton as a plain button.
     ("button", "Actions"),
     ("separator", "Divider"),
     ("thumb", "Resize this window"),
