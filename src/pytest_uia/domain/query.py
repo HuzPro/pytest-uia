@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from pytest_uia.domain.name_match import ById, Exactly, NameMatch
+
 
 class Role(Enum):
     """The kinds of element a test can ask for. Grows only as a cycle demands it."""
@@ -38,14 +40,32 @@ class Role(Enum):
     SEPARATOR = auto()
     THUMB = auto()
     TAB_STRIP = auto()
+    # The web vocabulary: what Chromium projects rows, links and menus into
+    # the tree as, so an Electron or browser window is queryable too.
+    LIST_ITEM = auto()
+    TREE_ITEM = auto()
+    MENU_ITEM = auto()
+    DATA_ITEM = auto()
+    HYPERLINK = auto()
+    DOCUMENT = auto()
 
 
 @dataclass(frozen=True)
 class Query:
-    """What the test is looking for, in accessibility terms: a role and a name."""
+    """What the test is looking for: a role, and how the control identifies itself.
+
+    `name` is an accessible name (or a matcher over one), or an AutomationId
+    wrapped in `by_id`.
+    """
 
     role: Role
-    name: str
+    name: str | NameMatch | ById
+
+    def __post_init__(self) -> None:
+        # A plain string stays the way every test spells one; it becomes the
+        # exact matcher it always meant.
+        if isinstance(self.name, str):
+            object.__setattr__(self, "name", Exactly(self.name))
 
     def __str__(self) -> str:
-        return f"{self.role.name.capitalize()} '{self.name}'"
+        return f"{self.role.name.capitalize()} {self.name}"

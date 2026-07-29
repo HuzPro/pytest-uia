@@ -19,9 +19,11 @@ from pytest_uia.domain.errors import (
     DialogStillOpen,
     ElementNotFound,
     InputRefused,
+    StillOffscreen,
     TextNeverSettled,
 )
-from pytest_uia.domain.locator import Element, Locator
+from pytest_uia.domain.locator import Element, Locator, ScopedLocator
+from pytest_uia.domain.name_match import NameMatch
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.tree import DEFAULT_LIMITS, DumpLimits, Walk
 from pytest_uia.domain.waiting import RetryPolicy, poll
@@ -30,10 +32,16 @@ DEFAULT_POLICY = RetryPolicy()
 
 T = TypeVar("T")
 
-# All three mean "the screen is not ready yet", and all three clear on their
+# All of these mean "the screen is not ready yet", and all clear on their
 # own: not painted yet, input dropped while another window held the
-# foreground, or a control still reading its pre-keystroke value.
-_WORTH_ANOTHER_ATTEMPT = (ElementNotFound, InputRefused, TextNeverSettled)
+# foreground, a control still reading its pre-keystroke value, or a row a
+# provider has not yet managed to scroll onto the screen.
+_WORTH_ANOTHER_ATTEMPT = (
+    ElementNotFound,
+    InputRefused,
+    StillOffscreen,
+    TextNeverSettled,
+)
 
 
 def waiting_at_most(policy: RetryPolicy, timeout: float | None) -> RetryPolicy:
@@ -47,12 +55,172 @@ def waiting_at_most(policy: RetryPolicy, timeout: float | None) -> RetryPolicy:
     return replace(policy, timeout=timeout)
 
 
-class UIElement:
+class ElementQueries:
+    """The query vocabulary every scope offers: a window, a dialog, an element.
+
+    Template Method over `_element_for`: each subclass decides which locator a
+    query is answered from, and that decision is the whole difference between
+    searching a window and searching inside one row of it.
+    """
+
+    def button(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.BUTTON, name, timeout)
+
+    def textbox(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.TEXTBOX, name, timeout)
+
+    def text(
+        self, value: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.TEXT, value, timeout)
+
+    def tab(self, name: str | NameMatch, *, timeout: float | None = None) -> UIElement:
+        """One tab of a notebook, which `click()` selects.
+
+        The control a test reaches before it can reach anything on the page
+        behind it: a notebook shows one page at a time and unmaps the rest, so
+        until this can be clicked, a test can only read whichever page the
+        application happened to open with.
+        """
+        return self._element_for(Role.TAB, name, timeout)
+
+    # Every other kind of control, one call each. Spelled out rather than
+    # generated from the role table: these are the whole vocabulary a test
+    # author has, and a name an editor cannot complete is a name nobody finds.
+    def checkbox(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.CHECKBOX, name, timeout)
+
+    def radio(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.RADIO, name, timeout)
+
+    def slider(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.SLIDER, name, timeout)
+
+    def spinbox(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.SPINBOX, name, timeout)
+
+    def combobox(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.COMBOBOX, name, timeout)
+
+    def listbox(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """A list. Rows a provider exposes are `list_item`; Tk's are not in the tree."""
+        return self._element_for(Role.LISTBOX, name, timeout)
+
+    def tree(self, name: str | NameMatch, *, timeout: float | None = None) -> UIElement:
+        """A tree. Nodes a provider exposes are `tree_item`; Tk's are not in the tree."""
+        return self._element_for(Role.TREE, name, timeout)
+
+    def progressbar(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.PROGRESSBAR, name, timeout)
+
+    def scrollbar(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.SCROLLBAR, name, timeout)
+
+    def group(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """A frame or labelled group; the usual scope a row query starts from."""
+        return self._element_for(Role.GROUP, name, timeout)
+
+    def image(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """A picture or drawing surface. What it *shows* is paint: see the OCR path."""
+        return self._element_for(Role.IMAGE, name, timeout)
+
+    def split_button(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """A button with a menu attached."""
+        return self._element_for(Role.SPLIT_BUTTON, name, timeout)
+
+    def separator(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.SEPARATOR, name, timeout)
+
+    def thumb(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """A drag handle: a `ttk.Sizegrip`, or the thumb of a scrollbar."""
+        return self._element_for(Role.THUMB, name, timeout)
+
+    def tab_strip(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """The strip a notebook's tabs sit on. Its tabs are `app.tab(...)`."""
+        return self._element_for(Role.TAB_STRIP, name, timeout)
+
+    def list_item(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """One row of a list, where the list's provider exposes its rows."""
+        return self._element_for(Role.LIST_ITEM, name, timeout)
+
+    def tree_item(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """One node of a tree, where the tree's provider exposes its nodes."""
+        return self._element_for(Role.TREE_ITEM, name, timeout)
+
+    def menu_item(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.MENU_ITEM, name, timeout)
+
+    def data_item(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """One cell or row of a data grid."""
+        return self._element_for(Role.DATA_ITEM, name, timeout)
+
+    def hyperlink(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        return self._element_for(Role.HYPERLINK, name, timeout)
+
+    def document(
+        self, name: str | NameMatch, *, timeout: float | None = None
+    ) -> UIElement:
+        """A document surface: what a browser calls its whole web area."""
+        return self._element_for(Role.DOCUMENT, name, timeout)
+
+    def _element_for(
+        self, role: Role, name: str | NameMatch, timeout: float | None
+    ) -> UIElement:
+        raise NotImplementedError
+
+
+class UIElement(ElementQueries):
     """Proxy for an on-screen element, standing in for one that may not exist yet.
 
     Holds the query rather than the control, and resolves it again on every
     interaction: a cached control goes stale on any repaint. Resolution is
     where the implicit wait lives, and the only place it lives.
+
+    Carries the query vocabulary itself, scoped to its own inside: the element
+    `app.group("record 23256").text("1m 8s")` means is searched for under the
+    row, resolved fresh alongside it on every look.
     """
 
     def __init__(
@@ -102,6 +270,18 @@ class UIElement:
         self._within_the_implicit_wait(self._one_that_is_painted, timeout)
         return self
 
+    def scroll_into_view(self, *, timeout: float | None = None) -> UIElement:
+        """Put the element's pixels on screen, where a click can land.
+
+        Provider calls only: no mouse wheel, no keyboard, no foreground
+        change. Works on an element that is in the tree; a virtualised row
+        the provider has not materialised is not in the tree to be asked.
+        """
+        self._within_the_implicit_wait(
+            lambda: self._one_that_matches().scroll_into_view(), timeout
+        )
+        return self
+
     def wait_until_text_is(
         self, expected: str, *, timeout: float | None = None
     ) -> UIElement:
@@ -134,6 +314,17 @@ class UIElement:
     def _one_that_matches(self) -> Element:
         return self._locator.find(self._query)
 
+    def _element_for(
+        self, role: Role, name: str | NameMatch, timeout: float | None
+    ) -> UIElement:
+        return UIElement(
+            Query(role=role, name=name),
+            ScopedLocator(self._locator, self._query),
+            waiting_at_most(self._policy, timeout),
+            clock=self._clock,
+            sleep=self._sleep,
+        )
+
     def _within_the_implicit_wait(
         self, attempt: Callable[[], T], timeout: float | None = None
     ) -> T:
@@ -165,6 +356,10 @@ class UIElement:
             raise TextNeverSettled(
                 f"still not reading it after {policy.timeout}s; {unsettled}"
             ) from unsettled
+        except StillOffscreen as offscreen:
+            raise StillOffscreen(
+                f"still offscreen after {policy.timeout}s; {offscreen}"
+            ) from offscreen
 
 
 class Window(Protocol):
@@ -201,7 +396,7 @@ class RunningProcess(Protocol):
     def terminate(self) -> None: ...
 
 
-class ElementSource:
+class ElementSource(ElementQueries):
     """The widgets of exactly one window, and the implicit wait they inherit.
 
     Shared by App and Dialog so that `button`, `textbox` and `text` mean the
@@ -236,81 +431,9 @@ class ElementSource:
             self._tree.walk(limits), inside_the_dialog=self._inside_the_dialog
         )
 
-    def button(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.BUTTON, name, timeout)
-
-    def textbox(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.TEXTBOX, name, timeout)
-
-    def text(self, value: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.TEXT, value, timeout)
-
-    def tab(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """One tab of a notebook, which `click()` selects.
-
-        The control a test reaches before it can reach anything on the page
-        behind it: a notebook shows one page at a time and unmaps the rest, so
-        until this can be clicked, a test can only read whichever page the
-        application happened to open with.
-        """
-        return self._element_for(Role.TAB, name, timeout)
-
-    # Every other kind of control, one call each. Spelled out rather than
-    # generated from the role table: these are the whole vocabulary a test
-    # author has, and a name an editor cannot complete is a name nobody finds.
-    def checkbox(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.CHECKBOX, name, timeout)
-
-    def radio(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.RADIO, name, timeout)
-
-    def slider(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.SLIDER, name, timeout)
-
-    def spinbox(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.SPINBOX, name, timeout)
-
-    def combobox(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.COMBOBOX, name, timeout)
-
-    def listbox(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A list. Its *rows* are not in the tree: see the README's caveat."""
-        return self._element_for(Role.LISTBOX, name, timeout)
-
-    def tree(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A tree. Its *items* are not in the tree either, for the same reason."""
-        return self._element_for(Role.TREE, name, timeout)
-
-    def progressbar(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.PROGRESSBAR, name, timeout)
-
-    def scrollbar(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.SCROLLBAR, name, timeout)
-
-    def group(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A frame or labelled group, useful mostly to assert one is on screen."""
-        return self._element_for(Role.GROUP, name, timeout)
-
-    def image(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A picture or drawing surface. What it *shows* is paint: see the OCR path."""
-        return self._element_for(Role.IMAGE, name, timeout)
-
-    def split_button(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A button with a menu attached: what a Tk `Menubutton` reaches a client as."""
-        return self._element_for(Role.SPLIT_BUTTON, name, timeout)
-
-    def separator(self, name: str, *, timeout: float | None = None) -> UIElement:
-        return self._element_for(Role.SEPARATOR, name, timeout)
-
-    def thumb(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """A drag handle: a `ttk.Sizegrip`, or the thumb of a scrollbar."""
-        return self._element_for(Role.THUMB, name, timeout)
-
-    def tab_strip(self, name: str, *, timeout: float | None = None) -> UIElement:
-        """The strip a notebook's tabs sit on. Its tabs are `app.tab(...)`."""
-        return self._element_for(Role.TAB_STRIP, name, timeout)
-
-    def _element_for(self, role: Role, name: str, timeout: float | None) -> UIElement:
+    def _element_for(
+        self, role: Role, name: str | NameMatch, timeout: float | None
+    ) -> UIElement:
         return UIElement(
             Query(role=role, name=name),
             self._locator,

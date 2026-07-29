@@ -26,6 +26,9 @@ NOTIFY_ME = "Notify me"
 BY_EMAIL = "By email"
 VOLUME = "Volume"
 QUANTITY = "Quantity"
+# An int, because what tk-uia writes is GWLP_ID, the Win32 control id; UIA
+# renders it back as the string '4207'.
+QUANTITY_ID = 4207
 PRIORITY = "Priority"
 SEARCH_RESULTS = "Search results"
 TASK_LIST = "Task list"
@@ -49,6 +52,9 @@ def main() -> None:
     _accessibility_switched_on(root)
     for name, widget in to_be_named.items():
         tk_uia.set_acc_name(widget, name)
+    # One deliberately set automation id, standing in for a WPF x:Name or a
+    # web page's DOM id: the only kind worth querying by.
+    tk_uia.set_automation_id(to_be_named[QUANTITY], QUANTITY_ID)
     root.mainloop()
 
 
@@ -169,10 +175,12 @@ def _the_widgets_an_application_has_to_name(root: tk.Tk) -> dict[str, tk.Misc]:
 
 
 def _accessibility_switched_on(root: tk.Tk) -> None:
+    # Only UNSUPPORTED leaves the gallery bare; every other strategy puts
+    # its controls in the tree, which is all these specs need.
     strategy = tk_uia.enable(root)
-    if strategy is not Strategy.ANNOTATED:
+    if strategy is Strategy.UNSUPPORTED:
         raise SystemExit(
-            f"tk_uia.enable reported {strategy}, not {Strategy.ANNOTATED}: "
+            f"tk_uia.enable reported {strategy}: "
             "none of the gallery's controls would be in the tree"
         )
 

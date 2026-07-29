@@ -64,6 +64,15 @@ class TextNeverSettled(Exception):
     """
 
 
+class StillOffscreen(Exception):
+    """An element asked to scroll into view has no pixels on screen even so.
+
+    Not an ElementNotFound: the control is in the tree and was found on every
+    look. Either its provider offers no way to scroll it into view, or the
+    call was accepted and changed nothing, which the visibility check catches.
+    """
+
+
 class InputRefused(Exception):
     """The desktop would not let this process reach the window under test.
 

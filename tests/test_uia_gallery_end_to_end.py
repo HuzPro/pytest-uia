@@ -10,6 +10,7 @@ import sys
 
 import pytest
 
+from pytest_uia import by_id, containing, matching
 from pytest_uia.adapters.uia import UiaLocator, resolve_main_window
 from pytest_uia.application.driver import App
 from pytest_uia.domain.errors import ElementNotFound
@@ -45,7 +46,9 @@ EVERY_CONTROL_IN_THE_GALLERY = [
     ("scrollbar", "Scroll the results"),
     ("group", "Details"),
     ("image", "Activity sparkline"),
-    ("split_button", "Actions"),
+    # tk-uia's provider serves a Menubutton as a plain button, so the gallery
+    # no longer carries a SplitButtonControl for the split_button role.
+    ("button", "Actions"),
     ("separator", "Divider"),
     ("thumb", "Resize this window"),
     ("tab_strip", "Settings"),
@@ -121,6 +124,71 @@ def test_asking_whether_something_that_cannot_be_checked_is_checked_says_no(
     # this checked" for something that cannot be, and the query that found it
     # has already refused every control of the wrong kind.
     assert tk_gallery_app.group("Details").is_checked() is False
+
+
+def test_a_fragment_of_a_name_finds_the_control_carrying_the_whole_one(
+    tk_gallery_app: App,
+) -> None:
+    # Given the progressbar, whose whole name is "Upload progress"
+    # When the test asks with a fragment of it
+    found = tk_gallery_app.progressbar(containing("Upload")).exists()
+
+    # Then the control answers: the caption can grow a percentage tomorrow
+    # without this query going stale
+    assert found, "containing('Upload') found nothing"
+
+
+def test_a_pattern_finds_the_control_whose_whole_name_satisfies_it(
+    tk_gallery_app: App,
+) -> None:
+    # Given the same progressbar
+    # When the test asks with a pattern the whole name has to satisfy
+    found = tk_gallery_app.progressbar(matching(r"Upload .*")).exists()
+
+    # Then the control answers through the same one-shot search
+    assert found, "matching('Upload .*') found nothing"
+
+
+def test_an_automation_id_the_application_set_deliberately_is_queryable(
+    tk_gallery_app: App,
+) -> None:
+    # Given the spinbox, whose id the fixture sets on purpose, the way a WPF
+    # x:Name or a web page's DOM id is set on purpose
+    # When the test asks by that id instead of by name
+    found = tk_gallery_app.spinbox(by_id("4207")).exists()
+
+    # Then it answers: an id survives renaming and localisation, which is the
+    # whole reason to prefer it where an application really sets one
+    assert found, "app.spinbox(by_id('4207')) found nothing"
+
+
+def test_a_query_scoped_to_a_group_finds_what_the_group_encloses(
+    tk_gallery_app: App,
+) -> None:
+    # Given the group named "Details" and the label inside it
+    # When the test asks for the label through the group
+    found = tk_gallery_app.group("Details").text("inside").exists()
+
+    # Then it is found there, resolved fresh through both links
+    assert found, 'app.group("Details").text("inside") found nothing'
+
+
+def test_a_query_scoped_to_a_group_cannot_reach_what_sits_outside_it(
+    tk_gallery_app: App,
+) -> None:
+    # Given the checkbox, which sits in the window and not in the group
+    in_the_window = tk_gallery_app.checkbox(NOTIFY_ME).exists()
+    assert in_the_window, (
+        "the checkbox has to be findable for this spec to mean anything"
+    )
+
+    # When the test asks for it through the group
+    found = tk_gallery_app.group("Details").checkbox(NOTIFY_ME).exists(timeout=0.5)
+
+    # Then the scope holds: a control the window offers is out of reach from
+    # inside an element that does not enclose it, which is the whole point of
+    # scoping a query to one row of many
+    assert not found, "the group's scope leaked out into the window"
 
 
 def test_the_dump_offers_a_query_for_every_control_in_the_gallery(

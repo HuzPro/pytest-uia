@@ -12,9 +12,10 @@ import asyncio
 import pytest
 
 from pytest_uia.adapters.capture import CapturedImage, ScreenRegion
-from pytest_uia.domain.errors import InputRefused
+from pytest_uia.domain.errors import ElementNotFound, InputRefused
+from pytest_uia.domain.name_match import by_id, containing, matching
 from pytest_uia.domain.query import Query, Role
-from pytest_uia.domain.text_match import Word
+from pytest_uia.domain.text_match import Box, Word
 
 # The adapter reaches WinRT and `uiautomation` the moment it is imported, so a
 # machine without the `ocr` extra skips this file rather than failing to
@@ -220,6 +221,120 @@ def test_recognising_pixels_works_on_a_thread_that_already_runs_an_event_loop() 
 
     # Then it answers, rather than a bare RuntimeError about a second loop
     assert words == [], "a blank image has no words in it"
+
+
+class ARectangleOnScreen:
+    """Test double: where a window sits, in `uiautomation`'s own vocabulary."""
+
+    left = 0
+    top = 0
+
+    def width(self) -> int:
+        return 64
+
+    def height(self) -> int:
+        return 32
+
+
+class WindowWithPixels(RecordingWindow):
+    """Test double: a window that can also say where its pixels are."""
+
+    Name = "pytest-uia Canvas Fixture"
+    BoundingRectangle = ARectangleOnScreen()
+
+
+class ReaderOfOneLine:
+    """Test double: a recogniser that always reads the same painted line."""
+
+    def __init__(self, *texts: str) -> None:
+        self._words = [
+            Word(text=text, box=Box(left=8 * i, top=0, width=8, height=8), line=0)
+            for i, text in enumerate(texts)
+        ]
+
+    def recognize(self, image: CapturedImage) -> list[Word]:
+        return self._words
+
+
+class BlankCapture:
+    """Test double: a screen grabber handing back the same blank image."""
+
+    def grab(self, region: ScreenRegion) -> CapturedImage:
+        return _A_BLANK_IMAGE
+
+
+def test_a_substring_query_resolves_through_the_words_it_names() -> None:
+    # Given a window painted with "task created" and a query loosened to a
+    # fragment of it
+    locator = ocr.OcrLocator(
+        WindowWithPixels(),
+        reader=ReaderOfOneLine("task", "created"),
+        capture=BlankCapture(),
+    )
+
+    # When the fragment is looked for
+    element = locator.find(Query(role=Role.TEXT, name=containing("created")))
+
+    # Then the pixel link answers with those words, exactly as it would have
+    # for an exact query spelling them out
+    assert element.read_text() == "created"
+
+
+def test_a_pattern_query_is_declined_by_the_pixel_link_before_any_screen_grab() -> None:
+    # Given a query only a regular expression can express
+    window = WindowWithPixels()
+    locator = ocr.OcrLocator(
+        window,
+        reader=NeverAskedReader(),
+        capture=NeverAskedCapture(),
+    )
+
+    # When the pixel link is asked for it
+    with pytest.raises(ElementNotFound) as miss:
+        locator.find(Query(role=Role.TEXT, name=matching(r"task \d+")))
+
+    # Then it declined as a miss the chain can report, without stealing the
+    # foreground for a photograph it could never match against
+    assert window.activations == 0, (
+        "a query the pixels can never answer must not cost a foreground steal"
+    )
+    assert "pattern" in str(miss.value), (
+        f"the reason has to say the pixel link cannot do patterns: {miss.value}"
+    )
+
+
+def test_an_id_query_is_declined_by_the_pixel_link_before_any_screen_grab() -> None:
+    # Given a query by automation id, which no pixel carries
+    window = WindowWithPixels()
+    locator = ocr.OcrLocator(
+        window,
+        reader=NeverAskedReader(),
+        capture=NeverAskedCapture(),
+    )
+
+    # When the pixel link is asked for it
+    with pytest.raises(ElementNotFound) as miss:
+        locator.find(Query(role=Role.TEXTBOX, name=by_id("date-time-edit")))
+
+    # Then it declined without stealing the foreground for a photograph that
+    # could never carry an id
+    assert window.activations == 0
+    assert "id" in str(miss.value)
+
+
+def test_scoping_a_query_inside_words_read_off_the_screen_misses_honestly() -> None:
+    # Given an element that is nothing but a phrase and its position
+    element = _element_clicked_through(RecordingPointer())
+
+    # When something is looked for inside it
+    with pytest.raises(ElementNotFound) as miss:
+        element.contents().find(Query(role=Role.TEXT, name="anything"))
+
+    # Then the miss says pixels have no inside, rather than pretending an
+    # empty search happened
+    assert "inside" in str(miss.value), (
+        f"the reason has to say what pixels cannot offer: {miss.value}"
+    )
 
 
 def test_a_click_windows_drops_is_reported_rather_than_passing_for_a_click() -> None:

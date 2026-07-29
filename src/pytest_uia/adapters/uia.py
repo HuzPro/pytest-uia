@@ -28,9 +28,11 @@ from pytest_uia.domain.errors import (
     DialogNotFound,
     ElementNotFound,
     InputRefused,
+    StillOffscreen,
     WindowNotFound,
 )
 from pytest_uia.domain.locator import Locator, LocatorChain
+from pytest_uia.domain.name_match import ById, NameMatch
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.tree import (
     DEFAULT_LIMITS,
@@ -81,6 +83,12 @@ _CONTROL_TYPE_FOR_ROLE = {
     Role.SEPARATOR: auto.ControlType.SeparatorControl,
     Role.THUMB: auto.ControlType.ThumbControl,
     Role.TAB_STRIP: auto.ControlType.TabControl,
+    Role.LIST_ITEM: auto.ControlType.ListItemControl,
+    Role.TREE_ITEM: auto.ControlType.TreeItemControl,
+    Role.MENU_ITEM: auto.ControlType.MenuItemControl,
+    Role.DATA_ITEM: auto.ControlType.DataItemControl,
+    Role.HYPERLINK: auto.ControlType.HyperlinkControl,
+    Role.DOCUMENT: auto.ControlType.DocumentControl,
 }
 
 # Derived so that widening a query and widening the dump stay one edit.
@@ -224,12 +232,22 @@ def close_window(window: auto.Control) -> None:
 
 
 class UiaLocator:
-    """Adapter presenting the accessibility tree as the domain's Locator."""
+    """Adapter presenting the accessibility tree as the domain's Locator.
+
+    `root` narrows the search to one control's subtree; the window stays what
+    it is either way, because the window is what comes forward for a click and
+    what a dead provider is reported against.
+    """
 
     def __init__(
-        self, window: auto.Control, *, pointer: PointerInput = WINDOWS_POINTER
+        self,
+        window: auto.Control,
+        *,
+        pointer: PointerInput = WINDOWS_POINTER,
+        root: auto.Control | None = None,
     ) -> None:
         self._window = window
+        self._root = window if root is None else root
         # Passed through rather than left to the element's own default, exactly
         # as OcrLocator does: it is the only way a spec can watch whether the
         # mouse was reached for at all.
@@ -238,9 +256,9 @@ class UiaLocator:
     def find(self, query: Query) -> UiaElement:
         with reporting_a_dead_window_as(ElementNotFound, self._window):
             control = auto.Control(
-                searchFromControl=self._window,
+                searchFromControl=self._root,
                 ControlType=_CONTROL_TYPE_FOR_ROLE[query.role],
-                Name=query.name,
+                Compare=_named_as(query.name),
             )
             if not control.Exists(maxSearchSeconds=_LOOK_ONCE):
                 raise ElementNotFound(self._nothing_matched())
@@ -249,6 +267,8 @@ class UiaLocator:
     def _nothing_matched(self) -> str:
         # LocatorChain prefixes this with the locator's own class name, so it
         # has to read as a reason, not as a repetition of the query.
+        if self._root is not self._window:
+            return f"no match inside {self._root.Name!r}"
         return (
             f"no match under window {self._window.Name!r} "
             f"(pid {self._window.ProcessId})"
@@ -298,6 +318,8 @@ class UiaElement:
         with reporting_a_dead_window_as(ElementNotFound, self._window):
             if self._invoked_through_the_pattern():
                 return
+            if self._acted_through_a_state_pattern():
+                return
             self._click_with_the_mouse()
 
     def type_text(self, text: str) -> None:
@@ -337,6 +359,34 @@ class UiaElement:
             rectangle = self._control.BoundingRectangle
             return not self._control.IsOffscreen and not rectangle.isempty()
 
+    def scroll_into_view(self) -> None:
+        """Ask the provider to put this element's pixels on screen, and verify it.
+
+        Not trust-gated: the visibility check afterwards catches a call any
+        proxy only pretended to honour, so the postcondition is the gate.
+        """
+        with reporting_a_dead_window_as(ElementNotFound, self._window):
+            pattern = self._control.GetPattern(auto.PatternId.ScrollItemPattern)
+            if pattern is not None:
+                _accepted(pattern.ScrollIntoView)
+            if self.is_visible():
+                return
+            raise StillOffscreen(
+                self._why_it_has_no_pixels(offered=pattern is not None)
+            )
+
+    def _why_it_has_no_pixels(self, *, offered: bool) -> str:
+        if offered:
+            return (
+                "the provider accepted ScrollIntoView and the element has no "
+                "pixels even so"
+            )
+        return "the provider offers no ScrollItemPattern, and the element has no pixels"
+
+    def contents(self) -> UiaLocator:
+        """The controls inside this one, searchable the way a window's are."""
+        return UiaLocator(self._window, pointer=self._pointer, root=self._control)
+
     def _holds_editable_text(self) -> bool:
         # An edit control's Name is its label ("Title"); what the user typed
         # lives in its value instead.
@@ -359,6 +409,19 @@ class UiaElement:
             return False
         pattern = self._control.GetPattern(auto.PatternId.InvokePattern)
         return pattern is not None and _accepted(pattern.Invoke)
+
+    def _acted_through_a_state_pattern(self) -> bool:
+        """Toggle and Select are what a click means to the controls that offer
+        them instead of Invoke; measured, a provider-served checkbox and radio
+        each fire these for real. Trust-gated exactly as Invoke is.
+        """
+        if not self._trusts_its_provider():
+            return False
+        toggle = self._control.GetPattern(auto.PatternId.TogglePattern)
+        if toggle is not None and _accepted(toggle.Toggle):
+            return True
+        selection = self._control.GetPattern(auto.PatternId.SelectionItemPattern)
+        return selection is not None and _accepted(selection.Select)
 
     def _trusts_its_provider(self) -> bool:
         return self._trust.acts_for_real(self._control)
@@ -411,6 +474,22 @@ def _accepted(request: Callable[[], object]) -> bool:
     except COMError:
         return False
     return True
+
+
+def _named_as(match: NameMatch | ById) -> Callable[[auto.Control, int], bool]:
+    # A UIA search keys on literal names only, so the matcher rides in on the
+    # Compare callback, which `uiautomation` ANDs with the other properties.
+    if isinstance(match, ById):
+
+        def accepts(control: auto.Control, _depth: int) -> bool:
+            return control.AutomationId == match.id
+
+        return accepts
+
+    def accepts(control: auto.Control, _depth: int) -> bool:
+        return match.matches(control.Name)
+
+    return accepts
 
 
 def _owned_and_on_screen(

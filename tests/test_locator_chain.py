@@ -1,7 +1,9 @@
 """Behavioral spec for the locator fallback chain (Chain of Responsibility).
 
 The chain is the heart of the hybrid strategy: consult the accessibility
-tree first, fall back to OCR only when a surface exposes nothing.
+tree first, fall back to OCR only when a surface exposes nothing. Scoping a
+query inside an element another query finds is a Decorator over the same
+seam, so it is specified here too.
 """
 
 from __future__ import annotations
@@ -9,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from pytest_uia.domain.errors import ElementNotFound
-from pytest_uia.domain.locator import Element, LocatorChain
+from pytest_uia.domain.locator import Element, LocatorChain, ScopedLocator
 from pytest_uia.domain.query import Query, Role
 
 
@@ -115,6 +117,66 @@ def test_uia_is_consulted_before_ocr_for_windows_with_an_accessibility_tree() ->
     assert reading_the_pixels.consultations == 0, (
         "OCR ran for a window that had already answered through its tree: it "
         "is slower, and it is blind to the role the query asked for"
+    )
+
+
+class ContainerWithContents:
+    """Test double: an element whose inside is searchable, like a named row."""
+
+    def __init__(self, contents: object) -> None:
+        self._contents = contents
+
+    def contents(self) -> object:
+        return self._contents
+
+
+THE_ROW = Query(role=Role.GROUP, name="record 23256")
+THE_DURATION = Query(role=Role.TEXT, name="1m 8s")
+
+
+def test_a_scoped_query_is_answered_from_inside_the_element_enclosing_it() -> None:
+    # Given a window holding a named row, and a duration inside that row
+    duration = object()
+    row = ContainerWithContents(StubLocator(duration))
+    scoped = ScopedLocator(StubLocator(row), THE_ROW)
+
+    # When the duration is asked for through the scope
+    found = scoped.find(THE_DURATION)
+
+    # Then it was answered from the row's own inside, so the same words
+    # painted twenty rows further down can never answer instead
+    assert found is duration
+
+
+def test_a_scoped_query_misses_when_the_enclosing_element_is_missing() -> None:
+    # Given a scope whose enclosing element is not on screen
+    scoped = ScopedLocator(MissingLocator(), THE_ROW)
+
+    # When something inside it is asked for
+    with pytest.raises(ElementNotFound) as miss:
+        scoped.find(THE_DURATION)
+
+    # Then the failure blames the enclosure, not the thing inside it: whoever
+    # reads it needs to know which of the two names to go looking for
+    assert "record 23256" in str(miss.value), (
+        f"the missing ancestor is the first suspect and has to be named: {miss.value}"
+    )
+
+
+def test_a_scoped_query_misses_when_nothing_inside_the_element_matches() -> None:
+    # Given a row that is on screen with nothing matching inside it
+    row = ContainerWithContents(MissingLocator())
+    scoped = ScopedLocator(StubLocator(row), THE_ROW)
+
+    # When the absent thing is asked for through the scope
+    with pytest.raises(ElementNotFound) as miss:
+        scoped.find(THE_DURATION)
+
+    # Then the failure says the search happened inside the enclosure, because
+    # "not found" alone reads as "not in the window", which is not what was
+    # looked at
+    assert "inside" in str(miss.value) and "record 23256" in str(miss.value), (
+        f"a scoped miss has to say where it looked: {miss.value}"
     )
 
 

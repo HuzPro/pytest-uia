@@ -32,12 +32,16 @@ from pytest_uia.adapters.capture import (
 from pytest_uia.adapters.input import WINDOWS_POINTER, PointerInput
 from pytest_uia.adapters.uia import bring_to_the_front, reporting_a_dead_window_as
 from pytest_uia.domain.errors import ElementNotFound
+from pytest_uia.domain.name_match import ById, Containing, Exactly, NameMatch
 from pytest_uia.domain.query import Query
 from pytest_uia.domain.text_match import Box, Word, find_phrase
 
-# LocatorChain prefixes this with the locator's class name, so it has to read
-# as a bare reason rather than as a repetition of the query.
+# LocatorChain prefixes these with the locator's class name, so each has to
+# read as a bare reason rather than as a repetition of the query.
 _NOT_VISIBLE = "phrase not visible"
+_NO_PATTERNS_IN_PAINT = "the pixel link matches painted words, not patterns"
+_NO_IDS_IN_PAINT = "the pixel link matches painted words, not automation ids"
+_NOTHING_INSIDE_PAINT = "words read off the screen have no inside to search"
 
 # UIA runs on the calling thread and so does everything that leads here, so
 # there is never a second recognition wanting the pool at the same time.
@@ -108,17 +112,20 @@ class OcrLocator:
         self._pointer = pointer
 
     def find(self, query: Query) -> OcrElement:
+        # Declined before anything is photographed: a query the pixels can
+        # never answer must not cost a foreground steal on every poll.
+        phrase = _the_phrase_meant_by(query.name)
         # A window that has died is the chain's *last* link reaching for a
         # rectangle that no longer exists, and it raised a bare HRESULT where
         # the whole point of this locator being last is that it reports a miss.
         with reporting_a_dead_window_as(ElementNotFound, self._window):
             region = self._region_of_the_window_in_front()
             words = self._reader.recognize(self._capture.grab(region))
-        box = find_phrase(words, query.name)
+        box = find_phrase(words, phrase)
         if box is None:
             raise ElementNotFound(_NOT_VISIBLE)
         return OcrElement(
-            query.name,
+            phrase,
             _screen_point_of(box, region),
             self._window,
             pointer=self._pointer,
@@ -130,6 +137,18 @@ class OcrLocator:
         # photographed anyway.
         bring_to_the_front(self._window)
         return _region_of(self._window)
+
+
+def _the_phrase_meant_by(match: NameMatch | ById) -> str:
+    # Pixels hold words: an exact name and a fragment both mean "these words
+    # are painted somewhere", which is what `find_phrase` looks for.
+    if isinstance(match, Exactly):
+        return match.text
+    if isinstance(match, Containing):
+        return match.fragment
+    if isinstance(match, ById):
+        raise ElementNotFound(_NO_IDS_IN_PAINT)
+    raise ElementNotFound(_NO_PATTERNS_IN_PAINT)
 
 
 @dataclass(frozen=True)
@@ -191,6 +210,20 @@ class OcrElement:
         # Unconditionally true, and honestly so: being painted on the screen is
         # the only way this element could have been located at all.
         return True
+
+    def scroll_into_view(self) -> None:
+        # Nothing to do, for the same reason is_visible answers True.
+        return
+
+    def contents(self) -> NothingInside:
+        return NothingInside()
+
+
+class NothingInside:
+    """Locator for the inside of a recognised phrase, which pixels do not have."""
+
+    def find(self, query: Query) -> OcrElement:
+        raise ElementNotFound(_NOTHING_INSIDE_PAINT)
 
 
 def _screen_point_of(box: Box, region: ScreenRegion) -> ClickPoint:

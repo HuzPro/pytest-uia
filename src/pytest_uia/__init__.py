@@ -17,9 +17,11 @@ from pytest_uia.domain.errors import (
     InputRefused,
     LaunchFailed,
     ProcessStillRunning,
+    StillOffscreen,
     TextNeverSettled,
     WindowNotFound,
 )
+from pytest_uia.domain.name_match import by_id, containing, matching
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.tree import DumpLimits, TreeNode, WalkEnded
 
@@ -39,10 +41,14 @@ __all__ = [
     "ProcessStillRunning",
     "Query",
     "Role",
+    "StillOffscreen",
     "TextNeverSettled",
     "TreeNode",
     "UIElement",
     "WalkEnded",
     "WindowNotFound",
     "__version__",
+    "by_id",
+    "containing",
+    "matching",
 ]

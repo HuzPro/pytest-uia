@@ -18,8 +18,10 @@ from pytest_uia.domain.errors import (
     DialogStillOpen,
     ElementNotFound,
     InputRefused,
+    StillOffscreen,
     TextNeverSettled,
 )
+from pytest_uia.domain.name_match import containing
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.tree import DumpLimits, TreeNode, Walk
 from pytest_uia.domain.waiting import RetryPolicy
@@ -60,11 +62,15 @@ class RecordingControl:
 
     def __init__(self) -> None:
         self.clicks = 0
+        self.scrolls = 0
         self.typed: list[str] = []
         self.checked = False
 
     def click(self) -> None:
         self.clicks += 1
+
+    def scroll_into_view(self) -> None:
+        self.scrolls += 1
 
     def type_text(self, text: str) -> None:
         self.typed.append(text)
@@ -367,6 +373,143 @@ def _app_whose_window_is(window: FakeWindow, policy: RetryPolicy = _NO_PAUSE) ->
     )
 
 
+class RowOnScreen(RecordingControl):
+    """Test double: a control whose inside is searchable, like a named row."""
+
+    def __init__(self, contents: object) -> None:
+        super().__init__()
+        self._contents = contents
+
+    def contents(self) -> object:
+        return self._contents
+
+
+class ChainThatFindsTheRowOnAttempt:
+    """Test double: a UI whose row exists only after the app has painted it."""
+
+    def __init__(self, row: RowOnScreen, succeeds_on_attempt: int) -> None:
+        self._row = row
+        self._succeeds_on_attempt = succeeds_on_attempt
+        self.attempts = 0
+
+    def find(self, query: Query) -> RowOnScreen:
+        self.attempts += 1
+        if self.attempts < self._succeeds_on_attempt:
+            raise ElementNotFound(f"{query} -- not painted yet")
+        return self._row
+
+
+def test_a_query_scoped_inside_another_element_is_answered_from_its_inside() -> None:
+    # Given a window holding a named row with an Edit button inside it
+    inside_the_row = ChainThatFinds(RecordingControl())
+    row = RowOnScreen(inside_the_row)
+    window_wide = ChainThatFinds(row)
+    app = _app_looking_things_up_in(window_wide)
+
+    # When the test clicks the button through the row
+    app.group("record 23256").button("Edit").click()
+
+    # Then the window-wide search was asked only for the row, and the button
+    # was asked for inside it, where a same-named button twenty rows down can
+    # never answer instead
+    assert window_wide.queries == [Query(role=Role.GROUP, name="record 23256")]
+    assert inside_the_row.queries == [Query(role=Role.BUTTON, name="Edit")]
+
+
+def test_a_scoped_click_lands_once_the_enclosing_row_has_been_painted() -> None:
+    # Given a row the application has not painted yet
+    button = RecordingControl()
+    row = RowOnScreen(ChainThatFinds(button))
+    window_wide = ChainThatFindsTheRowOnAttempt(row, succeeds_on_attempt=3)
+    app = _app_looking_things_up_in(window_wide, policy=_NO_PAUSE)
+
+    # When the test clicks through it
+    app.group("record 23256").button("Edit").click()
+
+    # Then the whole path was resolved again on each look, inside one implicit
+    # wait: the row's absence was retried, never cached, and the click landed
+    assert window_wide.attempts == 3
+    assert button.clicks == 1
+
+
+class ControlThatScrollsInOnAttempt(RecordingControl):
+    """Test double: a row whose provider only manages the scroll after a while."""
+
+    def __init__(self, succeeds_on_attempt: int) -> None:
+        super().__init__()
+        self._succeeds_on_attempt = succeeds_on_attempt
+
+    def scroll_into_view(self) -> None:
+        super().scroll_into_view()
+        if self.scrolls < self._succeeds_on_attempt:
+            raise StillOffscreen("no pixels yet")
+
+
+def test_scroll_into_view_chains_into_the_interaction_it_was_for() -> None:
+    # Given a row somewhere below the fold
+    control = RecordingControl()
+    app = _app_looking_things_up_in(ChainThatFinds(control))
+
+    # When the test scrolls it into view and clicks it in one breath
+    app.list_item("backlog item 12").scroll_into_view().click()
+
+    # Then both happened, in that order of necessity: a click on an offscreen
+    # element lands on whatever is underneath
+    assert control.scrolls == 1
+    assert control.clicks == 1
+
+
+def test_scroll_into_view_keeps_asking_inside_the_implicit_wait() -> None:
+    # Given a row whose provider only manages the scroll on the third ask
+    control = ControlThatScrollsInOnAttempt(succeeds_on_attempt=3)
+    app = _app_looking_things_up_in(ChainThatFinds(control), policy=_NO_PAUSE)
+
+    # When the test scrolls it into view
+    app.list_item("backlog item 12").scroll_into_view()
+
+    # Then the wait absorbed the early refusals, exactly as it does a control
+    # that has not been painted yet
+    assert control.scrolls == 3
+
+
+class ControlThatNeverGainsPixels(RecordingControl):
+    """Test double: a row no amount of scrolling will put on screen."""
+
+    def scroll_into_view(self) -> None:
+        raise StillOffscreen("no pixels, whatever anyone does")
+
+
+def test_a_row_that_never_gains_pixels_reports_how_long_it_was_given() -> None:
+    # Given a row that stays offscreen whatever anyone does
+    control = ControlThatNeverGainsPixels()
+    app = _app_looking_things_up_in(
+        ChainThatFinds(control), policy=RetryPolicy(timeout=0.05, interval=0.0)
+    )
+
+    # When the test scrolls it into view
+    with pytest.raises(StillOffscreen) as failure:
+        app.list_item("backlog item 12").scroll_into_view()
+
+    # Then the failure carries the deadline, like every other timeout here
+    assert "after" in str(failure.value), (
+        f"a timeout that does not say how long it waited invites a retry with "
+        f"the same number: {failure.value}"
+    )
+
+
+def test_a_loosened_name_travels_through_to_the_locator_as_itself() -> None:
+    # Given an application under a caption that grows a count
+    chain = ChainThatFinds(RecordingControl())
+    app = _app_looking_things_up_in(chain)
+
+    # When the test asks with a fragment instead of the whole caption
+    app.text(containing("Inbox")).exists()
+
+    # Then the query carried the matcher itself: which names it accepts is the
+    # domain's decision, not something a locator re-derives
+    assert chain.queries == [Query(role=Role.TEXT, name=containing("Inbox"))]
+
+
 # Every role a test can ask for: the enum member, the control type the UIA
 # adapter maps it to, and the call a test writes. One list, because the three
 # drift the moment they live in three places.
@@ -386,6 +529,14 @@ EVERY_ROLE_A_TEST_CAN_ASK_FOR = [
     ("SEPARATOR", "SeparatorControl", "separator"),
     ("THUMB", "ThumbControl", "thumb"),
     ("TAB_STRIP", "TabControl", "tab_strip"),
+    # The web vocabulary: what Chromium (and so every Electron app) projects
+    # rows, links and menus into the tree as.
+    ("LIST_ITEM", "ListItemControl", "list_item"),
+    ("TREE_ITEM", "TreeItemControl", "tree_item"),
+    ("MENU_ITEM", "MenuItemControl", "menu_item"),
+    ("DATA_ITEM", "DataItemControl", "data_item"),
+    ("HYPERLINK", "HyperlinkControl", "hyperlink"),
+    ("DOCUMENT", "DocumentControl", "document"),
 ]
 
 

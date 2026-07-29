@@ -19,7 +19,7 @@ import uiautomation as auto
 from comtypes import COMError
 
 from pytest_uia.adapters.uia import UiaElement
-from pytest_uia.domain.errors import InputRefused
+from pytest_uia.domain.errors import InputRefused, StillOffscreen
 
 pytestmark = pytest.mark.skipif(
     sys.platform != "win32",
@@ -45,6 +45,13 @@ _TK_FRAMEWORK = "Win32"
 _WINFORMS_DESCRIPTION = "Main:Nested [... Main(parent link):Microsoft: MSAA Proxy ...]"
 _WINFORMS_FRAMEWORK = "WinForm"
 
+# What a window whose application serves a real UIA provider reports: no MSAA
+# proxy anywhere in it, so the trust rule believes its patterns.
+_REAL_PROVIDER_DESCRIPTION = (
+    "Main:Nested [... Main(parent link):Unidentified Provider (unmanaged)]; "
+    "Hwnd(parent link):Microsoft: HWND Proxy (unmanaged:uiautomationcore.dll)]"
+)
+
 _A_DRAFT = "Write the report"
 
 
@@ -66,6 +73,8 @@ class PatternlessControl:
     still reached for it would fail this file rather than a gui run.
     """
 
+    IsOffscreen = False
+
     def __init__(self) -> None:
         self.typed: list[tuple[str, bool]] = []
         self.BoundingRectangle = _CONTROL_RECTANGLE
@@ -78,10 +87,12 @@ class PatternlessControl:
 
 
 class FailingInvokeControl(PatternlessControl):
-    """Test double: a control that advertises Invoke and then refuses it."""
+    """Test double: a control that advertises Invoke, only Invoke, and refuses it."""
 
-    def GetPattern(self, patternId: int) -> FailingInvokeControl:
-        return self
+    def GetPattern(self, patternId: int) -> FailingInvokeControl | None:
+        if patternId == auto.PatternId.InvokePattern:
+            return self
+        return None
 
     def Invoke(self) -> None:
         raise _provider_refuses()
@@ -333,6 +344,194 @@ def test_a_control_served_by_a_real_provider_is_invoked_and_never_touched_by_the
     assert pointer.clicks == [], (
         "nothing that can be invoked should ever be touched by the mouse"
     )
+
+
+class TogglingCheckbox(PatternlessControl):
+    """Test double: a provider-served checkbox, Toggle offered and Invoke absent."""
+
+    ProviderDescription = _REAL_PROVIDER_DESCRIPTION
+    FrameworkId = "Win32"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.toggles = 0
+
+    def GetPattern(self, patternId: int) -> TogglingCheckbox | None:
+        if patternId == auto.PatternId.TogglePattern:
+            return self
+        return None
+
+    def Toggle(self) -> None:
+        self.toggles += 1
+
+
+class SelectableRadio(PatternlessControl):
+    """Test double: a provider-served radio, SelectionItem offered and Invoke absent."""
+
+    ProviderDescription = _REAL_PROVIDER_DESCRIPTION
+    FrameworkId = "Win32"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.selections = 0
+
+    def GetPattern(self, patternId: int) -> SelectableRadio | None:
+        if patternId == auto.PatternId.SelectionItemPattern:
+            return self
+        return None
+
+    def Select(self) -> None:
+        self.selections += 1
+
+
+class ProxiedToggle(TogglingCheckbox):
+    """Test double: a Toggle the generic MSAA proxy is inventing."""
+
+    ProviderDescription = _TK_DESCRIPTION
+    FrameworkId = _TK_FRAMEWORK
+
+
+class FailingToggle(TogglingCheckbox):
+    """Test double: a checkbox that advertises Toggle and then refuses it."""
+
+    def Toggle(self) -> None:
+        raise _provider_refuses()
+
+
+def test_a_checkbox_offering_toggle_instead_of_invoke_is_toggled_never_moused() -> None:
+    # Given a checkbox whose provider offers Toggle and no Invoke at all,
+    # which is what a provider-served Tk checkbox measures as
+    control = TogglingCheckbox()
+    pointer = RecordingPointer()
+    element = UiaElement(control, RecordingWindow(), pointer=pointer)
+
+    # When the test clicks it
+    element.click()
+
+    # Then toggling is what the click became: it is what a click means to the
+    # one control type that answers this way, and it needs no focus at all
+    assert control.toggles == 1, "the Toggle the provider honours was never asked"
+    assert pointer.clicks == [], (
+        "nothing that can be driven through a pattern should be touched by the mouse"
+    )
+
+
+def test_a_radio_offering_selection_instead_of_invoke_is_selected_never_moused() -> (
+    None
+):
+    # Given a radio whose provider offers SelectionItem and no Invoke,
+    # which is what a provider-served Tk radio measures as
+    control = SelectableRadio()
+    pointer = RecordingPointer()
+    element = UiaElement(control, RecordingWindow(), pointer=pointer)
+
+    # When the test clicks it
+    element.click()
+
+    # Then selecting is what the click became
+    assert control.selections == 1, "the Select the provider honours was never asked"
+    assert pointer.clicks == []
+
+
+def test_a_toggle_the_msaa_proxy_invents_is_skipped_for_the_mouse() -> None:
+    # Given a checkbox the generic proxy speaks for, advertising Toggle
+    control = ProxiedToggle()
+    pointer = RecordingPointer()
+    element = UiaElement(control, RecordingWindow(), pointer=pointer)
+
+    # When the test clicks it
+    element.click()
+
+    # Then the state patterns obey the same trust rule as Invoke: a call the
+    # proxy would accept and drop is never made, and the mouse does the work
+    assert control.toggles == 0, (
+        "a Toggle the proxy only pretends to support has to be skipped, not tried"
+    )
+    assert pointer.clicks == [_ITS_CENTRE]
+
+
+def test_a_toggle_the_provider_refuses_falls_back_to_the_mouse() -> None:
+    # Given a checkbox that advertises Toggle and refuses the call
+    control = FailingToggle()
+    pointer = RecordingPointer()
+    element = UiaElement(control, RecordingWindow(), pointer=pointer)
+
+    # When the test clicks it
+    element.click()
+
+    # Then the refusal is absorbed and the click still happens
+    assert pointer.clicks == [_ITS_CENTRE], (
+        "a provider that fails Toggle should not fail the test's click"
+    )
+
+
+class ScrollableOffscreenRow(PatternlessControl):
+    """Test double: an offscreen row whose provider can put it on screen."""
+
+    IsOffscreen = True
+
+    def GetPattern(self, patternId: int) -> ScrollableOffscreenRow | None:
+        if patternId == auto.PatternId.ScrollItemPattern:
+            return self
+        return None
+
+    def ScrollIntoView(self) -> None:
+        self.IsOffscreen = False
+
+
+class RowThatOnlyPretendsToScroll(ScrollableOffscreenRow):
+    """Test double: a ScrollIntoView that returns cleanly and moves nothing."""
+
+    def ScrollIntoView(self) -> None:
+        return
+
+
+def test_an_offscreen_row_is_scrolled_into_view_through_the_pattern() -> None:
+    # Given a row in the tree with no pixels, whose provider can scroll
+    control = ScrollableOffscreenRow()
+    element = UiaElement(control, RecordingWindow())
+
+    # When the test scrolls it into view
+    element.scroll_into_view()
+
+    # Then the provider did the moving: no focus, no foreground, no input
+    assert control.IsOffscreen is False
+
+
+def test_a_visible_control_with_no_scroll_pattern_needs_no_scrolling() -> None:
+    # Given a control already on screen, offering no ScrollItemPattern
+    element = UiaElement(PatternlessControl(), RecordingWindow())
+
+    # When the test scrolls it into view
+    element.scroll_into_view()
+
+    # Then the goal state already held, and holding it is the whole contract
+
+
+def test_an_offscreen_control_with_no_scroll_pattern_reports_still_offscreen() -> None:
+    # Given an offscreen control whose provider offers no way to scroll it
+    control = PatternlessControl()
+    control.IsOffscreen = True
+    element = UiaElement(control, RecordingWindow())
+
+    # When the test scrolls it into view
+    with pytest.raises(StillOffscreen) as failure:
+        element.scroll_into_view()
+
+    # Then the failure says what was missing, not merely that it failed
+    assert "ScrollItemPattern" in str(failure.value)
+
+
+def test_a_scroll_the_provider_fakes_is_caught_by_the_pixels_it_never_moved() -> None:
+    # Given a provider whose ScrollIntoView returns cleanly and does nothing
+    element = UiaElement(RowThatOnlyPretendsToScroll(), RecordingWindow())
+
+    # When the test scrolls it into view
+    with pytest.raises(StillOffscreen):
+        element.scroll_into_view()
+
+    # Then the postcondition caught the lie: this is why no trust rule is
+    # needed here, the call is verified by the one thing it exists to change
 
 
 def test_a_control_served_by_the_msaa_proxy_is_typed_into_by_clicking_it_first_then_typing() -> (

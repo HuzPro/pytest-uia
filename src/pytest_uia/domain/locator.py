@@ -28,6 +28,10 @@ class Element(Protocol):
 
     def is_visible(self) -> bool: ...
 
+    def scroll_into_view(self) -> None: ...
+
+    def contents(self) -> Locator: ...
+
 
 class Locator(Protocol):
     """Strategy for turning a query into an element.
@@ -66,3 +70,33 @@ def _miss_report(query: Query, misses: Sequence[str]) -> str:
     if not misses:
         return str(query)
     return f"{query}{_QUERY_FROM_MISSES}{_BETWEEN_MISSES.join(misses)}"
+
+
+class ScopedLocator:
+    """Decorator over a locator: queries answered inside another query's element.
+
+    Both the enclosing element and the one inside it are resolved fresh on
+    every call, so a repaint between polls invalidates nothing.
+    """
+
+    def __init__(self, locator: Locator, enclosing: Query) -> None:
+        self._locator = locator
+        self._enclosing = enclosing
+
+    def find(self, query: Query) -> Element:
+        container = self._the_enclosing_element()
+        try:
+            return container.contents().find(query)
+        except ElementNotFound as miss:
+            # Unqualified, "not found" reads as "not in the window", which is
+            # not where this looked.
+            raise ElementNotFound(f"inside {self._enclosing}: {miss}") from miss
+
+    def _the_enclosing_element(self) -> Element:
+        try:
+            return self._locator.find(self._enclosing)
+        except ElementNotFound as miss:
+            # The enclosure is the first suspect, so it is the one named first.
+            raise ElementNotFound(
+                f"the enclosing {self._enclosing} was not found: {miss}"
+            ) from miss
