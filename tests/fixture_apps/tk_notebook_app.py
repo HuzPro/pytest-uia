@@ -72,12 +72,12 @@ def _a_window_of_tabbed_pages() -> tk.Tk:
 
 
 def _accessibility_switched_on(root: tk.Tk) -> None:
+    # Only UNSUPPORTED leaves the tabs out of the tree; a mis-fired gate would
+    # fail every spec with "no such tab", which is true and explains nothing.
     strategy = tk_uia.enable(root)
-    if strategy is not Strategy.ANNOTATED:
-        # Loudly, and before the window is driven: a mis-fired gate would fail
-        # every spec with "no such tab", which is true and explains nothing.
+    if strategy is Strategy.UNSUPPORTED:
         raise SystemExit(
-            f"tk_uia.enable reported {strategy}, not {Strategy.ANNOTATED}: "
+            f"tk_uia.enable reported {strategy}: "
             "the notebook's tabs would not be in the tree at all"
         )
 

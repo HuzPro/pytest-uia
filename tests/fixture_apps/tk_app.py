@@ -191,16 +191,15 @@ def _saved_and_dismissed(dialog: tk.Toplevel, status: tk.StringVar) -> None:
 
 
 def _accessibility_switched_on(root: tk.Tk) -> None:
+    # Any strategy that puts the widgets in the tree serves these specs;
+    # only UNSUPPORTED leaves them exactly as bare Tk, which a suite that
+    # asserted "the name is right" would report as an ordinary driver miss.
     strategy = tk_uia.enable(root)
-    if strategy is not Strategy.ANNOTATED:
-        # Loudly, and before the window is worth reading: a version gate that
-        # mis-fires leaves every widget exactly as bare Tk left it, and a suite
-        # that only asserted "the name is right" would report that as an
-        # ordinary miss against the driver.
+    if strategy is Strategy.UNSUPPORTED:
         raise SystemExit(
-            f"tk_uia.enable reported {strategy}, not {Strategy.ANNOTATED}: "
-            "nothing in this window has been annotated, so the specs driving "
-            "it would be measuring bare Tk"
+            f"tk_uia.enable reported {strategy}: nothing in this window is "
+            "in the accessibility tree, so the specs driving it would be "
+            "measuring bare Tk"
         )
 
 
