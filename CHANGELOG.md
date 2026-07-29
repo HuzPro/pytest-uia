@@ -1,5 +1,71 @@
 # Changelog
 
+## Unreleased
+
+The three features that make a big, decorated, provider-rich window (a data
+grid, an Electron app) addressable: reach into one row of many, match a name
+that will not sit still, and ask for the kinds of control the web vocabulary
+projects into the tree.
+
+- **Container-scoped queries.** Every element now carries the whole query
+  vocabulary, meaning "inside me": `app.group("record 23256").text("1m 8s")`
+  is that text inside that row, where the same words twenty rows down can
+  never answer instead. Both links are resolved fresh on every look, inside
+  one implicit wait, so a repaint between polls invalidates nothing. A scoped
+  miss says which link missed: the enclosure, or the thing inside it. The
+  inside of a container is searched by the accessibility tree alone; a phrase
+  OCR located has no inside, and says so.
+
+- **`containing()` and `matching()`.** Names are still matched exactly by
+  default; these two loosen one query where an application decorates its
+  captions ("Inbox (3)"). `containing` is a case-sensitive fragment;
+  `matching` is a regular expression the whole name has to satisfy, compiled
+  at the call site so a typo fails where it was written and not once per
+  poll. On the pixel path `containing` means "these words are painted";
+  `matching` is declined there before anything is photographed, so a regex
+  query never costs a foreground steal.
+
+- **`app.list_item` / `tree_item` / `menu_item` / `data_item` / `hyperlink` /
+  `document`.** The roles a provider that exposes rows and links (WinForms,
+  WPF, Chromium and so every Electron window) projects into the tree. The
+  WinForms fixture grew a list box whose rows prove it end to end, unscoped
+  and through the list that holds them. Tk's rows are still not in the tree;
+  that caveat is unchanged.
+
+- **`by_id()`.** A query can match on the AutomationId instead of the name:
+  `app.textbox(by_id("date-time-edit"))`. Worth using exactly where an
+  application sets one deliberately, a WPF `x:Name`, a web page's DOM id
+  (Chromium carries those into the tree), or `tk_uia.set_automation_id`;
+  WinForms derives ids from window handles, differently on every launch, and
+  the README says so where it shows them. The pixel link declines an id query
+  before anything is photographed: pixels carry no ids.
+
+- **`element.scroll_into_view()`.** Puts a found element's pixels on screen
+  through `ScrollItemPattern` and verifies the outcome, so a provider that
+  accepts the call and moves nothing is caught by the one thing the call
+  exists to change; that postcondition is why no trust rule guards it.
+  Chainable, and retried inside the implicit wait like everything else.
+  Timing out raises **`StillOffscreen`**, exported alongside the other
+  failures, naming whether the pattern was missing or merely useless.
+  Measured: the classic Win32 list box offers no `ScrollItemPattern` at all,
+  so its below-the-fold rows report exactly that.
+
+- **Clicks speak Toggle and Select, not only Invoke.** A checkbox that offers
+  `TogglePattern` instead of `InvokePattern`, or a radio that offers
+  `SelectionItemPattern`, is driven through that pattern before the mouse is
+  reached for, under the same trust rule as Invoke. Measured against a
+  provider-serving tk-uia, where the MSAA proxy is out of the picture and
+  buttons, checkboxes and radios all fire their patterns for real: an
+  annotated Tk suite is then as immune to synthetic-input refusal as a
+  WinForms one, and the README's account of what Tk costs says so.
+
+- **The Tk fixture apps accept every tk-uia strategy that puts widgets in the
+  tree.** They used to demand `ANNOTATED` and die on anything else, which
+  newer tk-uia versions fail by serving a real UIA provider (`PROVIDED`), a
+  strict improvement. Only `UNSUPPORTED` is refused now. One consequence
+  measured under the provider: a `Menubutton` arrives as a plain button, so
+  the gallery no longer carries a `SplitButtonControl`.
+
 ## 0.7.1 - 2026-07-28
 
 No library code changed.

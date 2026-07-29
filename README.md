@@ -1,7 +1,7 @@
 # pytest-uia
 
 [![tests](https://github.com/HuzPro/pytest-uia/actions/workflows/tests.yml/badge.svg)](https://github.com/HuzPro/pytest-uia/actions/workflows/tests.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/HuzPro/pytest-uia/blob/main/LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 **Windows GUI acceptance testing for pytest, through the accessibility tree, not pixels.**
@@ -26,7 +26,7 @@ that list; it is not any more, and
 | The app under test is a web page, or is Electron-in-a-browser | **Playwright / Selenium.** They own that surface completely; UIA reaches Chromium's tree, but through a far worse API than the DevTools protocol. |
 | Cross-platform: the same suite has to run on macOS or Linux | **SikuliX** or **Airtest**. This is Windows-only and will stay that way. |
 | Games, video, custom OpenGL/canvas, nothing is a control anywhere | **SikuliX** or **Airtest**. Image matching is the right tool when there is genuinely no structure to query; pytest-uia's OCR fallback reads *text*, not arbitrary imagery. |
-| You need drag-and-drop, right-click, double-click, scrolling, menus, comboboxes, trees | **pywinauto**, today. Those are all v1 non-goals here, see [ROADMAP](ROADMAP.md). |
+| You need drag-and-drop, right-click, double-click, scrolling, or menus driven open | **pywinauto**, today. Those are all v1 non-goals here, see [ROADMAP](https://github.com/HuzPro/pytest-uia/blob/main/ROADMAP.md). |
 | You want raw coordinate control and nothing else | **PyAutoGUI.** It is 200 lines of what you want and no opinion at all. |
 | A mature, broad Windows automation library with years of edge cases handled | **pywinauto.** It is the incumbent for a reason. pytest-uia is a small, opinionated *pytest plugin*, not a replacement for it. |
 | Native Win32/WinForms/WPF/Electron desktop app, and you want acceptance tests that read like the acceptance criteria | **pytest-uia.** |
@@ -108,7 +108,12 @@ is using. A launched one always is.
 | `gui.attach(title=..., timeout=10.0)` | Take a handle on a window already on screen, by its caption. |
 | `app.button(name)` / `app.textbox(name)` / `app.text(value)` | An element, resolved lazily and re-resolved on every interaction. |
 | `app.tab(name)` | One tab of a notebook; `click()` selects it. A notebook unmaps every page but the open one, so this is what a test reaches before anything behind it. |
-| `app.checkbox` / `radio` / `slider` / `spinbox` / `combobox` / `listbox` / `tree` / `progressbar` / `scrollbar` / `group` / `image` / `split_button` / `separator` / `thumb` / `tab_strip` | The rest of the controls, one call each. A `listbox` and a `tree` are findable; their *rows* are not, see the caveats. |
+| `app.checkbox` / `radio` / `slider` / `spinbox` / `combobox` / `listbox` / `tree` / `progressbar` / `scrollbar` / `group` / `image` / `split_button` / `separator` / `thumb` / `tab_strip` | The rest of the controls, one call each. |
+| `app.list_item` / `tree_item` / `menu_item` / `data_item` / `hyperlink` / `document` | Rows, links and menus, where the provider exposes them: WinForms, WPF, Chromium and so every Electron window. Tk's rows are not in the tree, see the caveats. |
+| `app.button(containing("Task"))` / `app.text(matching(r"Inbox \(\d+\)"))` | Loosened name matching for one query: a case-sensitive fragment, or a pattern the whole name has to satisfy. Both are exported from the package. |
+| `app.textbox(by_id("date-time-edit"))` | Match on the AutomationId instead of the name, for the ids applications set deliberately. See [the dump's `id=` note](#what-the-dump-will-not-do). |
+| `element.scroll_into_view(timeout=None)` | Ask the provider to put the element's pixels on screen, then return itself so a call can follow. A provider call, never the mouse wheel. |
+| `app.group("record 23256").text("1m 8s")` | Every query, scoped to the inside of the element another query finds. Both links re-resolve on every look, so `app.listbox("Tasks").list_item("file the report")` survives any repaint. |
 | `element.is_checked()` | Whether a checkbox or radio button is on. A read, so it works through the MSAA proxy that cannot be *driven*. Anything with no toggle state answers `False`. |
 | `element.click()` / `.type_text(s)` / `.read_text()` | Act on it, or read it. |
 | `element.exists(timeout=None)` | `True`/`False` instead of an exception, for both directions of assertion. Two things still raise through it, see [what `exists()` does not absorb](#what-exists-does-not-absorb). |
@@ -124,7 +129,11 @@ is using. A launched one always is.
 | `python -m pytest_uia --title "..."` | The same dump from a terminal, against a window already on screen, no test needed. `--all`, `--max-nodes`, `--budget`, `--attach-timeout`. |
 | `--uia-timeout SECONDS` | The implicit wait every lookup inherits. Default 5 s; any call can override it with `timeout=`. |
 
-Names are matched **exactly** in v1. Substring and regex matching are on the roadmap.
+Names are matched **exactly** by default. `containing("Inbox")` and
+`matching(r"Inbox \(\d+\)")` loosen one query where an application decorates its
+captions faster than an exact name can keep up. On the pixel path `containing`
+means "these words are painted somewhere"; `matching` is declined there before
+anything is photographed, because pixels hold words, not patterns.
 
 ### The failures, and what each one blames
 
@@ -140,6 +149,7 @@ behind but its message, and which exception it is says where to start looking.
 | `DialogNotFound` | The main window is right there and the addressed child window is not, so the first suspect is the step that was supposed to open it. |
 | `DialogStillOpen` | Nothing is missing; a dialog a test waited to see the back of is still up. |
 | `TextNeverSettled` | The element was found on every look and never read what was expected. |
+| `StillOffscreen` | An element asked to scroll into view has no pixels even so: the provider offers no `ScrollItemPattern`, or accepted the call and moved nothing, which the visibility check catches. |
 | `InputRefused` | Windows dropped this process's synthetic input, or would not bring the window under test to the front. Not the application's fault, and the message names what was in the way. |
 | `ProcessStillRunning` | Every way of ending an application was tried and it is still there, so the next test is about to share the desktop with it. |
 
@@ -283,12 +293,13 @@ broken: measured, every title-bar button is marked and its `Invoke` works perfec
 `[offscreen]` means the control is in the tree with no pixels, which is what
 `wait_visible()` exists for.
 
-**`id=` is shown but cannot be queried.** v1 searches by name and role only. Do not pin
-a test to an AutomationId: measured, WinForms derives it from the window handle and it
-is different on every launch (`198966 / 723224 / 919832` for the same control across
-three runs of the same app). It is worth showing because it is stable where an
-application sets it deliberately (WPF, or `tk_uia.set_automation_id`) and querying by
-it is [on the roadmap](ROADMAP.md).
+**`id=` is queryable with `by_id`, where it deserves to be.** `app.textbox(by_id("..."))`
+matches on the AutomationId instead of the name, which is worth doing exactly where an
+application sets one deliberately: WPF's `x:Name`, a web page's DOM `id` (Chromium
+carries it into the tree, so every Electron app has them wherever its markup does), or
+`tk_uia.set_automation_id`. Do not pin a test to an id nobody chose: measured, WinForms
+derives them from the window handle, differently on every launch
+(`198966 / 723224 / 919832` for the same control across three runs of the same app).
 
 ### The window that has nothing to find
 
@@ -389,11 +400,12 @@ since the click that sets a label's text is usually the click that creates it; i
 never appears at all, that is still an `ElementNotFound`. `TextNeverSettled` is exported
 from the package alongside the other failures.
 
-Interactions prefer the accessibility pattern that needs no focus and steals none,
-`InvokePattern` for a click, `ValuePattern` for typing, and fall back to the mouse and
-keyboard in three cases: the provider offers no such pattern, it offers one and fails the
-call, or it is the generic **MSAA proxy** speaking for a control whose owner never wrote
-a provider at all.
+Interactions prefer the accessibility pattern that needs no focus and steals none:
+`InvokePattern` for a click, with `TogglePattern` and `SelectionItemPattern` standing
+in for the checkboxes and radios that offer those instead, and `ValuePattern` for
+typing. The mouse and keyboard are the fallback in three cases: the provider offers no
+such pattern, it offers one and fails the call, or it is the generic **MSAA proxy**
+speaking for a control whose owner never wrote a provider at all.
 
 That third case is the subtle one, and there the pattern is not even attempted. The proxy
 synthesises `Invoke` from a posted `BM_CLICK`; against an owner-drawn widget (every Tk
@@ -477,16 +489,18 @@ families; the advice stands anyway.
 
 ### What it still costs
 
-- **`Invoke` still lies, so a Tk click is a real mouse click.** An annotated Tk button
-  advertises an `InvokePattern` and a `DefaultAction` of "Press", and both are pretence:
-  measured against a click counter inside the application, `InvokePattern.Invoke()` and
-  `LegacyIAccessible.DoDefaultAction()` each return cleanly and fire nothing. pytest-uia
-  therefore refuses to *act* through a pattern the generic proxy is inventing, and uses
-  the mouse and the keyboard instead. The consequence is not free: a Tk suite is exposed
+- **Whether a Tk click needs the mouse depends on which tk-uia is underneath.** Under
+  the annotation-only releases, an annotated Tk button advertises an `InvokePattern`
+  it cannot honour: measured against a click counter inside the application, the call
+  returns cleanly and fires nothing, so pytest-uia refuses patterns the generic proxy
+  invents and uses the mouse and keyboard instead, which leaves such a suite exposed
   to the [refusal of synthetic input](#the-fallback-paths-depend-on-synthetic-mouse-input-and-that-can-be-refused)
-  described below, where a WinForms suite is not. Tk gains UIA's precision (roles, empty
-  text boxes, independence from fonts and themes and DPI) but not UIA's immunity to a
-  higher-integrity window holding the foreground.
+  described below. A tk-uia that serves a **real provider** changes the answer, and
+  this was measured too: its buttons' `Invoke`, its checkboxes' `Toggle`, its radios'
+  `Select` and its entries' `SetValue` all genuinely fire, the MSAA proxy is no longer
+  in front, and the trust rule admits the patterns on its own. An annotated Tk suite
+  is then driven the way a WinForms one is, with the same immunity to a foreground
+  thief.
 - **A Tk app you cannot modify is still an OCR case.** Annotation is in-process only.
   Reaching for another process's window handle does not raise; it silently does nothing,
   and can corrupt an annotation that process made for itself. `tk-uia`'s README documents
@@ -501,7 +515,7 @@ Tk 8.6.15, CPython 3.15 bundles Tk 9.0.4, and neither carries any of it, so the 
 bundled accessible Tk is realistically **CPython 3.16**. `tk_uia.enable()` already detects
 a Tk that answers for itself and stands down, and what pytest-uia does with such a window
 - whether the trust rule admits it automatically once the proxy is out of the picture, is
-an open question on the [ROADMAP](ROADMAP.md), unanswerable until Tk 9.1 is installable.
+an open question on the [ROADMAP](https://github.com/HuzPro/pytest-uia/blob/main/ROADMAP.md), unanswerable until Tk 9.1 is installable.
 
 ## Limitations you should know before adopting this
 
@@ -521,7 +535,7 @@ box an accessible name so UIA can see it (for Tk, that is one `tk_uia.enable(roo
 type through an element UIA located. It is the same judgement the adapter already makes
 about an `Invoke` the generic MSAA proxy only advertises (decline a call that would
 return cleanly having reached nothing anybody chose) turned on this package's own API,
-and it is what [ROADMAP.md](ROADMAP.md) always said the answer was.
+and it is what [ROADMAP.md](https://github.com/HuzPro/pytest-uia/blob/main/ROADMAP.md) always said the answer was.
 
 Clicking, reading and `exists()` are unaffected: *where* a phrase is, is exactly what
 OCR does know. Roles are honoured by UIA and by UIA alone, so if your app has an
@@ -561,12 +575,12 @@ bad day) and no medium-integrity process can displace it. `SetForegroundWindow`,
 Throughout all of that, **UIA pattern calls, screen capture and OCR keep working
 perfectly.** Invoking a button through its accessibility pattern is a provider call, not
 an input event, so UIPI never sees it. What is affected is everything that ends in the
-mouse: a click on a phrase OCR located, and a click on a control the generic proxy speaks
-for on behalf of a toolkit that implements no accessibility of its own, a Tk widget,
-annotated or not. That is the thesis of this project
-demonstrated by accident, and it is also the honest cost of the Tk support above: a
-WinForms suite goes through patterns and is immune, a Tk suite injects real input and is
-not.
+mouse: a click on a phrase OCR located, and a click on a control the generic proxy
+speaks for on behalf of a toolkit with no provider of its own, which is a bare Tk
+widget, or one under an annotation-only tk-uia. That is the thesis of this project
+demonstrated by accident. A suite whose controls answer with real patterns is immune,
+and that now means WinForms and a provider-serving tk-uia alike; a suite whose
+controls sit behind the generic proxy injects real input and is not.
 
 pytest-uia handles it honestly rather than silently:
 
@@ -614,11 +628,11 @@ lock the workstation (a locked session has no interactive desktop to inject into
 
 ### Not in v1
 
-Menus, comboboxes, checkboxes and radios, tables and trees, drag-and-drop, right- and
-double-click, keyboard chords, scrolling, dialogs opened from inside another dialog,
-image-diff assertions, OCR-targeted `type_text`, non-built-in OCR engines, non-Windows,
-elevated processes. See [ROADMAP](ROADMAP.md) for what is deferred and
-what is refused outright.
+Driving a menu or a combobox *open*, drag-and-drop, right- and double-click, keyboard
+chords, free scrolling (`scroll_into_view` covers what a provider can do; wheel-style
+panning it cannot), dialogs opened from inside another dialog, image-diff assertions,
+OCR-targeted `type_text`, non-built-in OCR engines, non-Windows, elevated processes.
+See [ROADMAP](https://github.com/HuzPro/pytest-uia/blob/main/ROADMAP.md) for what is deferred and what is refused outright.
 
 ## Launching apps that are really launchers
 
@@ -754,4 +768,4 @@ and run with no Windows anywhere.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/HuzPro/pytest-uia/blob/main/LICENSE)

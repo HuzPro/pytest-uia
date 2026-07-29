@@ -7,6 +7,30 @@ into coordinates. Breadth of widget support comes second to that, and speed come
 a distant third: a gui suite is bounded by the application's own repaint, not by
 anything in here.
 
+## Unreleased
+
+Reaching into containers, loosened names, and the web vocabulary: the three
+that turn a provider-rich window with repeating captions (a data grid, an
+Electron app) from a wall of ambiguity into something addressable. The
+CHANGELOG carries the detail.
+
+- **Container-scoped queries.** Every element carries the query vocabulary,
+  meaning "inside me"; both links re-resolve on every look inside one
+  implicit wait, and a scoped miss names which link missed.
+- **`containing()` and `matching()`.** Exact stays the default. The pixel
+  link treats a fragment as painted words and declines a pattern before
+  anything is photographed.
+- **Six web roles**, `list_item` to `document`, for providers that expose
+  rows and links: WinForms, WPF, Chromium and so every Electron window.
+- **`by_id()`**, for the AutomationIds applications set deliberately; the
+  dump has always shown them, and now the query can use them.
+- **`scroll_into_view()`**, the provider half of scrolling: realized items
+  gain pixels through `ScrollItemPattern`, verified by the visibility check,
+  with `StillOffscreen` as the honest refusal. Virtualised rows that are not
+  in the tree remain out of reach, see the non-goals.
+- **Clicks through Toggle and Select** where a provider offers those instead
+  of Invoke, trust-gated exactly as Invoke is.
+
 ## Shipped in v0.5
 
 The accessibility tree dump, the answer to the first question anyone
@@ -148,11 +172,6 @@ window with a rich accessibility tree and one without.
 
 ## Next
 
-- **Querying by AutomationId.** The dump shows it; no query can search by it.
-  Worth having only for frameworks that set one deliberately (WPF, and any
-  application calling `tk_uia.set_automation_id`) because measured, WinForms
-  derives it from the window handle and it differs on every launch. Which is
-  also why the dump captions it rather than offering it as a query.
 - **Dump on failure.** A pytest hook attaching `app.dump()` to the report of a
   test that could not find a control. It is the same shape as screenshot on
   failure, below, and wants the same `--uia-*-dir` plumbing, so they get done
@@ -172,9 +191,19 @@ window with a rich accessibility tree and one without.
   behaviour is right, and it is nesting that turns the edge case into the
   ordinary case. Doing them together also avoids growing the `Window` port
   twice.
-- **Substring and regex name matching.** v1 matches accessible names exactly,
-  which breaks the moment an app appends a count or a state to a caption
-  ("Inbox (3)").
+- **The shell as a queryable surface: tray icons and their menus.** The whole
+  journey is provider calls, no synthetic input anywhere: `InvokePattern` on
+  Explorer's tray button is a left click, `IUIAutomationElement3::
+  ShowContextMenu` opens the icon's menu even for a legacy-protocol icon, and
+  the `#32768` popup's menu items honour `Invoke` for real despite the MSAA
+  proxy serving them, so the trust rule needs a menu exemption there.
+  The tray tree is a Strategy: `Win11XamlTrayStrategy` (XAML buttons, an
+  overflow flyout window) and `ClassicTrayStrategy` (`SysPager` toolbars, the
+  overflow a window of its own) behind one port, selected by probing which
+  tree exists rather than by version sniffing, because Windows Server still
+  ships the classic shell. Wants three slices in order: a launch mode for an
+  app whose readiness is a tray icon rather than a window, the tray scope
+  itself, and a `Dialog`-shaped scope over the popup menu.
 - **Wire the Tk 9.1 native path.** `tk-uia` detects a Tk that answers
   `WM_GETOBJECT` for itself, stands down and reports `NATIVE`; wiring the `tk
   accessible` commands is its own roadmap item, blocked on Tk 9.1 being
@@ -216,14 +245,17 @@ window with a rich accessibility tree and one without.
 These are deliberate omissions, not oversights. Each would be a reasonable
 addition later; none is missing by accident.
 
-- **Widgets:** what is *inside* a list, a tree or a menu. The widgets themselves
-  came off this list in 0.7.0, fifteen roles, from `checkbox` to `tab_strip`,
-  after a survey of every Tk widget class found 37 typed and named and 5 a test
-  could ask for. Their rows and items need MSAA's `IAccessible` child-id model,
-  which is a COM server and a different piece of work; `app.listbox(...)` finds
-  the list and says nothing about what is in it.
+- **Widgets:** what is inside a *Tk* list, tree or menu. Where a provider
+  exposes rows and links they are ordinary queries now (`list_item`,
+  `tree_item` and kin, scoped or not); Tk's rows live behind MSAA's
+  `IAccessible` child-id model, which is a COM server and a different piece
+  of work, so `app.listbox(...)` there finds the list and says nothing about
+  what is in it.
 - **Interactions:** drag-and-drop, right-click, double-click, keyboard chords,
-  scrolling.
+  free scrolling. `scroll_into_view` ships the half a provider can do; panning
+  a container to *materialise* virtualised rows means a locator that acts in
+  order to find, and stays refused until something needs it badly enough to
+  pay for that.
 - **Assertions:** image-diff comparisons. If a test needs to compare pixels, this
   is the wrong tool, see the README's table.
 - **OCR-targeted `type_text`.** OCR cannot see roles, so it cannot distinguish an
