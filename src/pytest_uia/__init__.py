@@ -25,7 +25,7 @@ from pytest_uia.domain.name_match import by_id, containing, matching
 from pytest_uia.domain.query import Query, Role
 from pytest_uia.domain.tree import DumpLimits, TreeNode, WalkEnded
 
-__version__ = "0.7.1"
+__version__ = "0.8.0"
 
 __all__ = [
     "App",

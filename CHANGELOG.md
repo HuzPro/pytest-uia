@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-07-29
 
 The three features that make a big, decorated, provider-rich window (a data
 grid, an Electron app) addressable: reach into one row of many, match a name
